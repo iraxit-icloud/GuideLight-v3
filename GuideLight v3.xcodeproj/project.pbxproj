@@ -1,0 +1,563 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		8F4679022E7FB3E5009D770A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8F4678EC2E7FB3E4009D770A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F4678F32E7FB3E4009D770A;
+			remoteInfo = "GuideLight v3";
+		};
+		8F46790C2E7FB3E5009D770A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8F4678EC2E7FB3E4009D770A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F4678F32E7FB3E4009D770A;
+			remoteInfo = "GuideLight v3";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8F4678F42E7FB3E4009D770A /* GuideLight v3.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GuideLight v3.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8F4679012E7FB3E5009D770A /* GuideLight v3Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GuideLight v3Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8F46790B2E7FB3E5009D770A /* GuideLight v3UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GuideLight v3UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		8F4678F62E7FB3E4009D770A /* GuideLight v3 */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "GuideLight v3";
+			sourceTree = "<group>";
+		};
+		8F4679042E7FB3E5009D770A /* GuideLight v3Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "GuideLight v3Tests";
+			sourceTree = "<group>";
+		};
+		8F46790E2E7FB3E5009D770A /* GuideLight v3UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "GuideLight v3UITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8F4678F12E7FB3E4009D770A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F4678FE2E7FB3E5009D770A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F4679082E7FB3E5009D770A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8F4678EB2E7FB3E4009D770A = {
+			isa = PBXGroup;
+			children = (
+				8F4678F62E7FB3E4009D770A /* GuideLight v3 */,
+				8F4679042E7FB3E5009D770A /* GuideLight v3Tests */,
+				8F46790E2E7FB3E5009D770A /* GuideLight v3UITests */,
+				8F4678F52E7FB3E4009D770A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8F4678F52E7FB3E4009D770A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8F4678F42E7FB3E4009D770A /* GuideLight v3.app */,
+				8F4679012E7FB3E5009D770A /* GuideLight v3Tests.xctest */,
+				8F46790B2E7FB3E5009D770A /* GuideLight v3UITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8F4678F32E7FB3E4009D770A /* GuideLight v3 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8F4679152E7FB3E5009D770A /* Build configuration list for PBXNativeTarget "GuideLight v3" */;
+			buildPhases = (
+				8F4678F02E7FB3E4009D770A /* Sources */,
+				8F4678F12E7FB3E4009D770A /* Frameworks */,
+				8F4678F22E7FB3E4009D770A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8F4678F62E7FB3E4009D770A /* GuideLight v3 */,
+			);
+			name = "GuideLight v3";
+			packageProductDependencies = (
+			);
+			productName = "GuideLight v3";
+			productReference = 8F4678F42E7FB3E4009D770A /* GuideLight v3.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8F4679002E7FB3E5009D770A /* GuideLight v3Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8F4679182E7FB3E5009D770A /* Build configuration list for PBXNativeTarget "GuideLight v3Tests" */;
+			buildPhases = (
+				8F4678FD2E7FB3E5009D770A /* Sources */,
+				8F4678FE2E7FB3E5009D770A /* Frameworks */,
+				8F4678FF2E7FB3E5009D770A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8F4679032E7FB3E5009D770A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8F4679042E7FB3E5009D770A /* GuideLight v3Tests */,
+			);
+			name = "GuideLight v3Tests";
+			packageProductDependencies = (
+			);
+			productName = "GuideLight v3Tests";
+			productReference = 8F4679012E7FB3E5009D770A /* GuideLight v3Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8F46790A2E7FB3E5009D770A /* GuideLight v3UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8F46791B2E7FB3E5009D770A /* Build configuration list for PBXNativeTarget "GuideLight v3UITests" */;
+			buildPhases = (
+				8F4679072E7FB3E5009D770A /* Sources */,
+				8F4679082E7FB3E5009D770A /* Frameworks */,
+				8F4679092E7FB3E5009D770A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8F46790D2E7FB3E5009D770A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8F46790E2E7FB3E5009D770A /* GuideLight v3UITests */,
+			);
+			name = "GuideLight v3UITests";
+			packageProductDependencies = (
+			);
+			productName = "GuideLight v3UITests";
+			productReference = 8F46790B2E7FB3E5009D770A /* GuideLight v3UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8F4678EC2E7FB3E4009D770A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1640;
+				LastUpgradeCheck = 1640;
+				TargetAttributes = {
+					8F4678F32E7FB3E4009D770A = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					8F4679002E7FB3E5009D770A = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 8F4678F32E7FB3E4009D770A;
+					};
+					8F46790A2E7FB3E5009D770A = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 8F4678F32E7FB3E4009D770A;
+					};
+				};
+			};
+			buildConfigurationList = 8F4678EF2E7FB3E4009D770A /* Build configuration list for PBXProject "GuideLight v3" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8F4678EB2E7FB3E4009D770A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8F4678F52E7FB3E4009D770A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8F4678F32E7FB3E4009D770A /* GuideLight v3 */,
+				8F4679002E7FB3E5009D770A /* GuideLight v3Tests */,
+				8F46790A2E7FB3E5009D770A /* GuideLight v3UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8F4678F22E7FB3E4009D770A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F4678FF2E7FB3E5009D770A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F4679092E7FB3E5009D770A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8F4678F02E7FB3E4009D770A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F4678FD2E7FB3E5009D770A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F4679072E7FB3E5009D770A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8F4679032E7FB3E5009D770A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F4678F32E7FB3E4009D770A /* GuideLight v3 */;
+			targetProxy = 8F4679022E7FB3E5009D770A /* PBXContainerItemProxy */;
+		};
+		8F46790D2E7FB3E5009D770A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F4678F32E7FB3E4009D770A /* GuideLight v3 */;
+			targetProxy = 8F46790C2E7FB3E5009D770A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8F4679132E7FB3E5009D770A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		8F4679142E7FB3E5009D770A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		8F4679162E7FB3E5009D770A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "shrenikr.GuideLight-v3";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		8F4679172E7FB3E5009D770A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "shrenikr.GuideLight-v3";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8F4679192E7FB3E5009D770A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "shrenikr.GuideLight-v3Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GuideLight v3.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GuideLight v3";
+			};
+			name = Debug;
+		};
+		8F46791A2E7FB3E5009D770A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "shrenikr.GuideLight-v3Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GuideLight v3.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GuideLight v3";
+			};
+			name = Release;
+		};
+		8F46791C2E7FB3E5009D770A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "shrenikr.GuideLight-v3UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "GuideLight v3";
+			};
+			name = Debug;
+		};
+		8F46791D2E7FB3E5009D770A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL9S52T79V;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "shrenikr.GuideLight-v3UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "GuideLight v3";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8F4678EF2E7FB3E4009D770A /* Build configuration list for PBXProject "GuideLight v3" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8F4679132E7FB3E5009D770A /* Debug */,
+				8F4679142E7FB3E5009D770A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8F4679152E7FB3E5009D770A /* Build configuration list for PBXNativeTarget "GuideLight v3" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8F4679162E7FB3E5009D770A /* Debug */,
+				8F4679172E7FB3E5009D770A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8F4679182E7FB3E5009D770A /* Build configuration list for PBXNativeTarget "GuideLight v3Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8F4679192E7FB3E5009D770A /* Debug */,
+				8F46791A2E7FB3E5009D770A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8F46791B2E7FB3E5009D770A /* Build configuration list for PBXNativeTarget "GuideLight v3UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8F46791C2E7FB3E5009D770A /* Debug */,
+				8F46791D2E7FB3E5009D770A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8F4678EC2E7FB3E4009D770A /* Project object */;
+}
