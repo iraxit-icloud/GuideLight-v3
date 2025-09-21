@@ -196,11 +196,17 @@ class SimpleJSONMapManager: ObservableObject {
     }
     
     func exportMapAsJSON(_ map: JSONMap) -> String {
+        print("📤 Exporting map: \(map.name)")
+        print("   JSON data keys: \(map.jsonData.keys.joined(separator: ", "))")
+        
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: map.jsonData, options: .prettyPrinted)
-            return String(data: jsonData, encoding: .utf8) ?? ""
+            let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
+            print("   Export successful, length: \(jsonString.count)")
+            return jsonString
         } catch {
-            return "Error: Unable to serialize JSON"
+            print("   Export failed: \(error)")
+            return "Error: Unable to serialize JSON - \(error.localizedDescription)"
         }
     }
     
@@ -246,17 +252,35 @@ class SimpleJSONMapManager: ObservableObject {
         do {
             let encoded = try JSONEncoder().encode(maps)
             userDefaults.set(encoded, forKey: mapsKey)
+            print("💾 Successfully saved \(maps.count) maps to UserDefaults")
+            print("   Saved map names: \(maps.map { $0.name }.joined(separator: ", "))")
         } catch {
-            print("Failed to save maps: \(error)")
+            print("❌ Failed to save maps: \(error)")
         }
     }
     
     private func loadMaps() {
-        guard let data = userDefaults.data(forKey: mapsKey) else { return }
+        guard let data = userDefaults.data(forKey: mapsKey) else {
+            print("📭 No saved maps data found in UserDefaults")
+            return
+        }
+        
+        print("📦 Found \(data.count) bytes of maps data in UserDefaults")
+        
         do {
             maps = try JSONDecoder().decode([JSONMap].self, from: data)
+            print("📚 Successfully loaded \(maps.count) maps from UserDefaults")
+            
+            // Debug: Print loaded map details
+            for (index, map) in maps.enumerated() {
+                print("   Map \(index + 1): \(map.name)")
+                print("     Created: \(map.createdDate)")
+                print("     JSON keys: \(map.jsonData.keys.joined(separator: ", "))")
+                print("     JSON data size: \(map.jsonData.count) items")
+            }
         } catch {
-            print("Failed to load maps: \(error)")
+            print("❌ Failed to load maps: \(error)")
+            print("   Error details: \(error.localizedDescription)")
             maps = []
         }
     }
@@ -275,8 +299,6 @@ class SimpleJSONMapManager: ObservableObject {
 struct SimpleJSONMapsListView: View {
     @ObservedObject private var mapManager = SimpleJSONMapManager.shared
     @State private var showingAddMap = false
-    @State private var selectedMap: JSONMap?
-    @State private var showingMapDetail = false
     @State private var showingSessionJSON = false
     @State private var showingSessionShare = false
     @State private var sessionShareURL: URL?
@@ -370,30 +392,48 @@ struct SimpleJSONMapsListView: View {
             } else {
                 Section("Saved Maps") {
                     ForEach(mapManager.maps) { map in
-                        Button(action: {
-                            selectedMap = map
-                            showingMapDetail = true
-                        }) {
+                        NavigationLink(destination: SimpleJSONMapDetailView(map: map)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Image(systemName: "doc.text")
                                         .foregroundColor(.blue)
-                                    Text(map.name)
-                                        .font(.headline)
-                                        .foregroundColor(.primary)
+                                    VStack(alignment: .leading) {
+                                        Text(map.name)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        Text("Created: \(map.createdDate.formatted(.dateTime.day().month().year()))")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        if !map.description.isEmpty {
+                                            Text(map.description)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        
+                                        // Show beacon and doorway counts
+                                        HStack {
+                                            if let beacons = map.jsonData["beacons"] as? [Any] {
+                                                Text("Beacons: \(beacons.count)")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.green)
+                                            }
+                                            
+                                            if let doorways = map.jsonData["doorways"] as? [Any] {
+                                                Text("Doorways: \(doorways.count)")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.orange)
+                                            }
+                                        }
+                                    }
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
-                                
-                                Text("Created: \(map.createdDate.formatted(.dateTime.day().month().year()))")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
+                                .padding(.vertical, 2)
                             }
-                            .padding(.vertical, 2)
                         }
-                        .buttonStyle(PlainButtonStyle())
                     }
                     .onDelete(perform: deleteMap)
                 }
@@ -410,11 +450,6 @@ struct SimpleJSONMapsListView: View {
         }
         .sheet(isPresented: $showingAddMap) {
             SimpleJSONMapAddView()
-        }
-        .sheet(isPresented: $showingMapDetail) {
-            if let map = selectedMap {
-                SimpleJSONMapDetailView(map: map)
-            }
         }
         .sheet(isPresented: $showingSessionJSON) {
             SimpleSessionJSONView()
@@ -515,64 +550,175 @@ struct SimpleSessionJSONView: View {
 // MARK: - Simple JSON Map Detail View
 struct SimpleJSONMapDetailView: View {
     let map: JSONMap
-    @ObservedObject private var mapManager = SimpleJSONMapManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
+    @State private var jsonContent = ""
+    @State private var isLoading = true
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // Map Information
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Map Information")
                             .font(.headline)
                         
-                        HStack {
-                            Text("Name:")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(map.name)
-                                .font(.caption)
-                        }
-                        
-                        HStack {
-                            Text("Created:")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(map.createdDate.formatted(.dateTime.day().month().year()))
-                                .font(.caption)
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Name:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 80, alignment: .leading)
+                                Text(map.name)
+                                    .font(.caption)
+                            }
+                            
+                            HStack {
+                                Text("Created:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 80, alignment: .leading)
+                                Text(map.createdDate.formatted(.dateTime.day().month().year()))
+                                    .font(.caption)
+                            }
+                            
+                            HStack {
+                                Text("Description:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 80, alignment: .leading)
+                                Text(map.description.isEmpty ? "No description" : map.description)
+                                    .font(.caption)
+                            }
+                            
+                            HStack {
+                                Text("Data Keys:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 80, alignment: .leading)
+                                Text(map.jsonData.keys.joined(separator: ", "))
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                            }
+                            
+                            if let beacons = map.jsonData["beacons"] as? [Any] {
+                                HStack {
+                                    Text("Beacons:")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 80, alignment: .leading)
+                                    Text("\(beacons.count)")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
+                            }
+                            
+                            if let doorways = map.jsonData["doorways"] as? [Any] {
+                                HStack {
+                                    Text("Doorways:")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 80, alignment: .leading)
+                                    Text("\(doorways.count)")
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                }
+                            }
                         }
                     }
                     .padding()
                     .background(Color.gray.opacity(0.1))
                     .cornerRadius(8)
                     
+                    // JSON Content
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("JSON Content")
-                            .font(.headline)
+                        HStack {
+                            Text("JSON Content")
+                                .font(.headline)
+                            Spacer()
+                            if isLoading {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Text("\(jsonContent.count) characters")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                         
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            Text(mapManager.exportMapAsJSON(map))
-                                .font(.system(.caption, design: .monospaced))
-                                .padding()
-                                .background(Color.black.opacity(0.05))
+                        if isLoading {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(height: 200)
+                                .overlay(
+                                    Text("Loading JSON content...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                )
                                 .cornerRadius(8)
+                        } else if jsonContent.isEmpty {
+                            Rectangle()
+                                .fill(Color.red.opacity(0.1))
+                                .frame(height: 200)
+                                .overlay(
+                                    VStack {
+                                        Text("Failed to load JSON content")
+                                            .font(.caption)
+                                            .foregroundColor(.red)
+                                        Button("Retry") {
+                                            loadJSONContent()
+                                        }
+                                        .font(.caption)
+                                        .buttonStyle(.bordered)
+                                    }
+                                )
+                                .cornerRadius(8)
+                        } else {
+                            ScrollView(.horizontal, showsIndicators: true) {
+                                Text(jsonContent)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .padding()
+                                    .background(Color.black.opacity(0.05))
+                                    .cornerRadius(8)
+                                    .textSelection(.enabled)
+                            }
+                            .frame(minHeight: 200)
                         }
                     }
                     
+                    // Actions
                     VStack(spacing: 12) {
                         Button("Share Map") {
                             shareMap()
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(maxWidth: .infinity)
+                        .disabled(jsonContent.isEmpty)
                         
                         Button("Copy JSON") {
-                            UIPasteboard.general.string = mapManager.exportMapAsJSON(map)
+                            UIPasteboard.general.string = jsonContent
+                            print("📋 Copied JSON to clipboard (\(jsonContent.count) characters)")
                         }
                         .buttonStyle(.bordered)
                         .frame(maxWidth: .infinity)
+                        .disabled(jsonContent.isEmpty)
+                        
+                        // Debug button
+                        Button("Debug Map Data") {
+                            print("🐛 DEBUG MAP DATA:")
+                            print("   Map ID: \(map.id)")
+                            print("   Map Name: \(map.name)")
+                            print("   Created: \(map.createdDate)")
+                            print("   Description: \(map.description)")
+                            print("   JSON Data Keys: \(map.jsonData.keys)")
+                            print("   JSON Data: \(map.jsonData)")
+                            print("   Exported JSON: \(jsonContent)")
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
+                        .foregroundColor(.orange)
                     }
                 }
                 .padding()
@@ -592,12 +738,54 @@ struct SimpleJSONMapDetailView: View {
                 SimpleJSONMapShareSheet(activityItems: [url])
             }
         }
+        .onAppear {
+            print("🔍 SimpleJSONMapDetailView appeared for: \(map.name)")
+            print("   Map JSON keys: \(map.jsonData.keys.joined(separator: ", "))")
+            loadJSONContent()
+        }
+    }
+    
+    private func loadJSONContent() {
+        print("📖 Loading JSON content for map: \(map.name)")
+        isLoading = true
+        
+        // Add a small delay to show loading state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: map.jsonData, options: .prettyPrinted)
+                jsonContent = String(data: jsonData, encoding: .utf8) ?? ""
+                print("   ✅ Loaded JSON content length: \(jsonContent.count)")
+                if jsonContent.isEmpty {
+                    print("   ⚠️ JSON content is empty!")
+                }
+            } catch {
+                print("   ❌ Failed to serialize JSON: \(error)")
+                jsonContent = "Error serializing JSON: \(error.localizedDescription)"
+            }
+            isLoading = false
+        }
     }
     
     private func shareMap() {
-        mapManager.shareMap(map) { url in
-            shareURL = url
-            showingShareSheet = url != nil
+        print("📤 Sharing map: \(map.name)")
+        
+        let jsonString = jsonContent.isEmpty ? SimpleJSONMapManager.shared.exportMapAsJSON(map) : jsonContent
+        let fileName = "\(map.name.replacingOccurrences(of: " ", with: "_")).json"
+        
+        guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("❌ Failed to get documents directory")
+            return
+        }
+        
+        let fileURL = documentsPath.appendingPathComponent(fileName)
+        
+        do {
+            try jsonString.write(to: fileURL, atomically: true, encoding: .utf8)
+            shareURL = fileURL
+            showingShareSheet = true
+            print("✅ Share file created: \(fileURL)")
+        } catch {
+            print("❌ Failed to create share file: \(error)")
         }
     }
 }

@@ -53,20 +53,8 @@ struct SettingsView: View {
                     NavigationLink(destination: SimpleJSONMapsListView()) {
                         Text("Manage Maps")
                     }
-                    
-                    HStack {
-                        Image(systemName: "map")
-                        Text("Total Maps")
-                        Spacer()
-                        Text("0") // Temporary - will update when JSONMapManager is ready
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Text("Start 2D mapping to create your first map")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .italic()
                 }
+
 
                 // =========================
                 // MARK: App Information
