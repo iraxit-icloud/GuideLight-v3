@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		8F4679602E7FB607009D770A /* ARKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F46795F2E7FB607009D770A /* ARKit.framework */; };
+		8F4679622E7FB60D009D770A /* SceneKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F4679612E7FB60D009D770A /* SceneKit.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		8F4679022E7FB3E5009D770A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +32,8 @@
 		8F4678F42E7FB3E4009D770A /* GuideLight v3.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GuideLight v3.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F4679012E7FB3E5009D770A /* GuideLight v3Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GuideLight v3Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F46790B2E7FB3E5009D770A /* GuideLight v3UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GuideLight v3UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8F46795F2E7FB607009D770A /* ARKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ARKit.framework; path = System/Library/Frameworks/ARKit.framework; sourceTree = SDKROOT; };
+		8F4679612E7FB60D009D770A /* SceneKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SceneKit.framework; path = System/Library/Frameworks/SceneKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -52,6 +59,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8F4679622E7FB60D009D770A /* SceneKit.framework in Frameworks */,
+				8F4679602E7FB607009D770A /* ARKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +87,7 @@
 				8F4678F62E7FB3E4009D770A /* GuideLight v3 */,
 				8F4679042E7FB3E5009D770A /* GuideLight v3Tests */,
 				8F46790E2E7FB3E5009D770A /* GuideLight v3UITests */,
+				8F46795E2E7FB607009D770A /* Frameworks */,
 				8F4678F52E7FB3E4009D770A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +100,15 @@
 				8F46790B2E7FB3E5009D770A /* GuideLight v3UITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		8F46795E2E7FB607009D770A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				8F4679612E7FB60D009D770A /* SceneKit.framework */,
+				8F46795F2E7FB607009D770A /* ARKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -400,11 +419,24 @@
 				DEVELOPMENT_TEAM = RL9S52T79V;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = GuideLight;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.navigation";
+				INFOPLIST_KEY_LSBackgroundOnly = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "GuideLight uses the camera for indoor mapping and navigation assistance for blind users.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GuideLight may use location services to enhance indoor navigation accuracy.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "GuideLight uses the microphone for voice commands and reading mail content aloud.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "GuideLight may access photos to help read mail and documents.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = true;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = "armv7 arkit";
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -428,11 +460,24 @@
 				DEVELOPMENT_TEAM = RL9S52T79V;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_FILE = Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = GuideLight;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.navigation";
+				INFOPLIST_KEY_LSBackgroundOnly = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "GuideLight uses the camera for indoor mapping and navigation assistance for blind users.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "GuideLight may use location services to enhance indoor navigation accuracy.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "GuideLight uses the microphone for voice commands and reading mail content aloud.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "GuideLight may access photos to help read mail and documents.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = true;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = "armv7 arkit";
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Automatic;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
