@@ -62,7 +62,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
         isARSessionRunning = true
         arSessionState = .running
         
-        print("🔄 Started new AR mapping session")
+        print("🔥 Started new AR mapping session")
     }
     
     func pauseARSession() {
@@ -170,8 +170,8 @@ class BuildMapViewModel: NSObject, ObservableObject {
         updatedBeacons.append(beacon)
         currentMap = currentMap.updated(beacons: updatedBeacons)
         
-        // ✅ ADDED: Notify about beacon addition (console logging)
-        print("🔸 BEACON ADDED:")
+        // Notify about beacon addition (console logging)
+        print("📍 BEACON ADDED:")
         print("   Name: \(beacon.name)")
         print("   Coordinates: x=\(beacon.position.x), y=\(beacon.position.y), z=\(beacon.position.z)")
         print("   Category: \(beacon.category.rawValue)")
@@ -256,7 +256,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
         updatedDoorways.append(doorway)
         currentMap = currentMap.updated(doorways: updatedDoorways)
         
-        // ✅ ADDED: Notify about doorway addition (console logging)
+        // Notify about doorway addition (console logging)
         let centerPoint = simd_float3(
             (doorway.startPoint.x + doorway.endPoint.x) / 2,
             (doorway.startPoint.y + doorway.endPoint.y) / 2,
@@ -338,7 +338,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
         print("🧹 Cleared map data")
     }
     
-    // ✅ ADDED: Save/Complete Map Function
+    // MARK: - Save/Complete Map Function
     func saveMap() {
         let mapData = generateMapData()
         let mapName = currentMap.name.isEmpty ? "Map \(Date().formatted(.dateTime.day().month().year().hour().minute()))" : currentMap.name
@@ -349,10 +349,13 @@ class BuildMapViewModel: NSObject, ObservableObject {
         print("   Doorways: \(currentMap.doorways.count)")
         
         // Create JSONMap directly and save using singleton
-        let jsonMap = JSONMap(name: mapName, jsonData: mapData, description: "Manual save from AR session")
+        let jsonMap = JSONMap(name: mapName, jsonData: mapData, description: "Saved from AR mapping session")
         
-        // ✅ FIXED: Use singleton instead of creating new instance
+        // Use singleton to add map
         SimpleJSONMapManager.shared.addMap(jsonMap)
+        
+        // FIXED: Clear the current session after saving to remove the "Save as Map" button
+        SimpleJSONMapManager.shared.resetCurrentSession()
         
         // Also send notification for consistency
         NotificationCenter.default.post(
@@ -364,10 +367,10 @@ class BuildMapViewModel: NSObject, ObservableObject {
             ]
         )
         
-        print("✅ Map saved successfully!")
+        print("✅ Map saved successfully and current session cleared!")
     }
     
-    // ✅ ADDED: Generate Map Data Function
+    // MARK: - Generate Map Data Function
     private func generateMapData() -> [String: Any] {
         let beaconsData = currentMap.beacons.map { beacon in
             return [

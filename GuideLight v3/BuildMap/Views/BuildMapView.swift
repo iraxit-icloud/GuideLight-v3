@@ -5,10 +5,10 @@ import SceneKit
 // MARK: - Build Map View
 struct BuildMapView: View {
     @StateObject private var viewModel = BuildMapViewModel()
-    @StateObject private var mapManager = MapManagerViewModel()
     @Environment(\.dismiss) private var dismiss
     @State private var showingMapNameDialog = false
     @State private var showingSaveConfirmation = false
+    @State private var mapNameInput = ""
     
     var body: some View {
         NavigationView {
@@ -51,10 +51,11 @@ struct BuildMapView: View {
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        if viewModel.currentMap.name == "New Map" {
+                        if viewModel.currentMap.name == "New Map" || viewModel.currentMap.name.isEmpty {
+                            mapNameInput = ""
                             showingMapNameDialog = true
                         } else {
-                            saveMap()
+                            saveMapWithCurrentName()
                         }
                     }
                     .disabled(viewModel.currentMap.beacons.isEmpty && viewModel.currentMap.doorways.isEmpty)
@@ -62,14 +63,14 @@ struct BuildMapView: View {
             }
         }
         .alert("Name Your Map", isPresented: $showingMapNameDialog) {
-            TextField("Map Name", text: $viewModel.tempItemName)
+            TextField("Map Name", text: $mapNameInput)
             Button("Cancel", role: .cancel) {
-                viewModel.tempItemName = ""
+                mapNameInput = ""
             }
             Button("Save") {
-                viewModel.updateMapName(viewModel.tempItemName)
-                saveMap()
+                saveMapWithName(mapNameInput)
             }
+            .disabled(mapNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
             Text("Enter a name for your map")
         }
@@ -95,7 +96,7 @@ struct BuildMapView: View {
                 dismiss()
             }
         } message: {
-            Text("Your map has been saved successfully!")
+            Text("Your map '\(viewModel.currentMap.name)' has been saved successfully!")
         }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
             Button("OK") {
@@ -357,14 +358,24 @@ struct BuildMapView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
     
-    // MARK: - Save Map
-    private func saveMap() {
-        Task {
-            let success = await mapManager.saveMap(viewModel.currentMap)
-            if success {
-                showingSaveConfirmation = true
-            }
-        }
+    // MARK: - Save Functions
+    private func saveMapWithName(_ name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        
+        // Update the map name first
+        viewModel.updateMapName(trimmedName)
+        
+        // Then save the map using the ViewModel's save method
+        viewModel.saveMap()
+        
+        showingSaveConfirmation = true
+        mapNameInput = ""
+    }
+    
+    private func saveMapWithCurrentName() {
+        viewModel.saveMap()
+        showingSaveConfirmation = true
     }
 }
 

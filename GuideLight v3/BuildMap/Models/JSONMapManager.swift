@@ -550,11 +550,13 @@ struct SimpleSessionJSONView: View {
 // MARK: - Simple JSON Map Detail View
 struct SimpleJSONMapDetailView: View {
     let map: JSONMap
+    @ObservedObject private var mapManager = SimpleJSONMapManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
     @State private var jsonContent = ""
     @State private var isLoading = true
+    @State private var showingDeleteConfirmation = false
     
     var body: some View {
         NavigationView {
@@ -705,9 +707,16 @@ struct SimpleJSONMapDetailView: View {
                         .frame(maxWidth: .infinity)
                         .disabled(jsonContent.isEmpty)
                         
+                        Button("Delete Map") {
+                            showingDeleteConfirmation = true
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
+                        .foregroundColor(.red)
+                        
                         // Debug button
                         Button("Debug Map Data") {
-                            print("🐛 DEBUG MAP DATA:")
+                            print("🛠 DEBUG MAP DATA:")
                             print("   Map ID: \(map.id)")
                             print("   Map Name: \(map.name)")
                             print("   Created: \(map.createdDate)")
@@ -737,6 +746,14 @@ struct SimpleJSONMapDetailView: View {
             if let url = shareURL {
                 SimpleJSONMapShareSheet(activityItems: [url])
             }
+        }
+        .alert("Delete Map", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                deleteMap()
+            }
+        } message: {
+            Text("Are you sure you want to delete '\(map.name)'? This action cannot be undone.")
         }
         .onAppear {
             print("🔍 SimpleJSONMapDetailView appeared for: \(map.name)")
@@ -786,6 +803,19 @@ struct SimpleJSONMapDetailView: View {
             print("✅ Share file created: \(fileURL)")
         } catch {
             print("❌ Failed to create share file: \(error)")
+        }
+    }
+    
+    private func deleteMap() {
+        print("🗑️ Deleting map: \(map.name)")
+        
+        // Find the index of this map in the manager's maps array
+        if let index = mapManager.maps.firstIndex(where: { $0.id == map.id }) {
+            mapManager.deleteMap(at: index)
+            print("✅ Map deleted successfully")
+            dismiss() // Close the detail view
+        } else {
+            print("❌ Failed to find map to delete")
         }
     }
 }
