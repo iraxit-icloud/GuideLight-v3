@@ -2,134 +2,448 @@ import SwiftUI
 import ARKit
 import SceneKit
 
-// MARK: - Build Map View
+// MARK: - Build Map View (FIXED)
 struct BuildMapView: View {
     @StateObject private var viewModel = BuildMapViewModel()
     @Environment(\.dismiss) private var dismiss
     @State private var showingMapNameDialog = false
     @State private var showingSaveConfirmation = false
     @State private var mapNameInput = ""
-    
+
     var body: some View {
         NavigationView {
             ZStack {
-                // AR Camera View
-                ARViewContainer(viewModel: viewModel)
-                    .ignoresSafeArea()
-                
-                // Overlay UI
-                VStack {
-                    // Top Controls
-                    topControlsView
-                    
-                    Spacer()
-                    
-                    // Crosshair
-                    crosshairView
-                    
-                    Spacer()
-                    
-                    // Bottom Controls
-                    bottomControlsView
-                }
-                .padding()
-                
-                // AR Session Status
-                if viewModel.arSessionState != .running {
-                    arSessionStatusView
+                if viewModel.showingRoomSetup {
+                    roomSetupView
+                } else {
+                    arMappingView
                 }
             }
-            .navigationTitle("Build Map")
+            .navigationTitle(viewModel.showingRoomSetup ? "Setup Rooms" : "Build Map")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    Button("Cancel") { dismiss() }
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
-                        if viewModel.currentMap.name == "New Map" || viewModel.currentMap.name.isEmpty {
-                            mapNameInput = ""
-                            showingMapNameDialog = true
-                        } else {
-                            saveMapWithCurrentName()
+
+                if !viewModel.showingRoomSetup {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Save") {
+                            if viewModel.currentMap.name == "New Map" || viewModel.currentMap.name.isEmpty {
+                                mapNameInput = ""
+                                showingMapNameDialog = true
+                            } else {
+                                saveMapWithCurrentName()
+                            }
                         }
+                        .disabled(viewModel.currentMap.beacons.isEmpty && viewModel.currentMap.doorways.isEmpty)
                     }
-                    .disabled(viewModel.currentMap.beacons.isEmpty && viewModel.currentMap.doorways.isEmpty)
                 }
             }
         }
         .alert("Name Your Map", isPresented: $showingMapNameDialog) {
             TextField("Map Name", text: $mapNameInput)
-            Button("Cancel", role: .cancel) {
-                mapNameInput = ""
-            }
-            Button("Save") {
-                saveMapWithName(mapNameInput)
-            }
-            .disabled(mapNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        } message: {
-            Text("Enter a name for your map")
+            Button("Cancel", role: .cancel) { mapNameInput = "" }
+            Button("Save") { saveMapWithName(mapNameInput) }
+                .disabled(mapNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .alert("Item Name", isPresented: $viewModel.showingNameDialog) {
-            TextField(viewModel.placementMode == .beacon ? "Beacon Name" : "Doorway Name",
-                     text: $viewModel.tempItemName)
-            Button("Cancel", role: .cancel) {
-                viewModel.cancelPlacement()
+        .alert("Item Details", isPresented: $viewModel.showingNameDialog) {
+            TextField("Name", text: $viewModel.tempItemName)
+            if viewModel.placementMode == .beacon {
+                Toggle("Mark as Obstacle?", isOn: $viewModel.isObstacleBeacon)
             }
+            Button("Cancel", role: .cancel) { viewModel.cancelPlacement() }
             Button("Place") {
                 if viewModel.placementMode == .beacon {
                     viewModel.confirmBeaconPlacement()
                 } else {
-                    viewModel.confirmDoorwayPlacement()
+                    viewModel.confirmWaypointPlacement()
                 }
             }
-        } message: {
-            Text("Enter a name for this \(viewModel.placementMode.displayName.lowercased())")
+        }
+        .sheet(isPresented: $viewModel.showingDoorwayDetails) {
+            doorwayDetailsSheet
+        }
+        .sheet(isPresented: $viewModel.showingRoomSelector) {
+            roomSelectorSheet
         }
         .alert("Map Saved", isPresented: $showingSaveConfirmation) {
-            Button("Continue Editing") { }
-            Button("Done") {
-                dismiss()
-            }
+            Button("Continue Editing") {}
+            Button("Done") { dismiss() }
         } message: {
-            Text("Your map '\(viewModel.currentMap.name)' has been saved successfully!")
+            Text("Your map '\(viewModel.currentMap.name)' has been saved!")
         }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
-            Button("OK") {
-                viewModel.clearError()
-            }
+            Button("OK") { viewModel.clearError() }
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .onAppear {
-            viewModel.startARSession()
-        }
-        .onDisappear {
-            viewModel.pauseARSession()
+    }
+
+    // MARK: - Room Setup View
+    private var roomSetupView: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 12) {
+                Image(systemName: "square.grid.3x3.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.blue)
+                Text("Setup Rooms")
+                    .font(.title.weight(.bold))
+                Text("Define the rooms you'll be mapping")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 40)
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(Array(viewModel.currentMap.rooms.enumerated()), id: \.element.id) { index, room in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(room.name)
+                                    .font(.headline)
+                                HStack {
+                                    Text(room.type.displayName)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Text("•")
+                                        .foregroundColor(.secondary)
+                                    Text(room.floorSurface.displayName)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                viewModel.removeRoom(at: index)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                    }
+                }
+                .padding(.horizontal)
+            }
+
+            VStack(spacing: 12) {
+                TextField("Room Name", text: $viewModel.tempRoomName)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal)
+
+                HStack(spacing: 12) {
+                    Picker("Type", selection: $viewModel.tempRoomType) {
+                        ForEach(RoomType.allCases, id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Picker("Surface", selection: $viewModel.tempFloorSurface) {
+                        ForEach(FloorSurface.allCases, id: \.self) { surface in
+                            Text(surface.displayName).tag(surface)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                .padding(.horizontal)
+
+                Button {
+                    viewModel.addRoom()
+                } label: {
+                    Label("Add Room", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue.opacity(viewModel.tempRoomName.isEmpty ? 0.3 : 1.0))
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .disabled(viewModel.tempRoomName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .padding(.horizontal)
+            }
+
+            Spacer()
+
+            Button {
+                viewModel.completeRoomSetup()
+            } label: {
+                Text("Continue to Mapping")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(viewModel.currentMap.rooms.isEmpty ? Color.gray : Color.blue)
+                    .cornerRadius(12)
+            }
+            .disabled(viewModel.currentMap.rooms.isEmpty)
+            .padding(.horizontal)
+            .padding(.bottom, 32)
         }
     }
-    
+
+    // MARK: - AR Mapping View
+    private var arMappingView: some View {
+        ZStack {
+            ARViewContainer(viewModel: viewModel)
+                .ignoresSafeArea()
+
+            VStack {
+                topControlsView
+                Spacer()
+                crosshairView
+                Spacer()
+                bottomControlsView
+            }
+            .padding()
+
+            if viewModel.arSessionState != .running {
+                arSessionStatusView
+            }
+        }
+    }
+
+    // MARK: - Doorway Details Sheet (FIXED)
+    private var doorwayDetailsSheet: some View {
+        NavigationView {
+            Form {
+                Section("Doorway Name") {
+                    TextField("Enter doorway name", text: $viewModel.tempItemName)
+                }
+
+                Section("Width (meters)") {
+                    HStack {
+                        Slider(value: $viewModel.doorwayWidth, in: 0.5...3.0, step: 0.1)
+                        Text(String(format: "%.1f m", viewModel.doorwayWidth))
+                            .frame(width: 60)
+                    }
+                }
+
+                Section("Door Type") {
+                    Picker("Type", selection: $viewModel.selectedDoorwayType) {
+                        ForEach(DoorwayType.allCases, id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                }
+
+                Section(header: Text("Quick Setup")) {
+                    VStack(spacing: 8) {
+                        Button {
+                            viewModel.setDoorAsHinged(pushFromCurrent: true)
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.right.square")
+                                Text("Standard Door (Push to Exit)")
+                                Spacer()
+                                if viewModel.selectedDoorAction == .push &&
+                                   viewModel.selectedDoorActionFromOther == .pull {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                        
+                        Button {
+                            viewModel.setDoorAsHinged(pushFromCurrent: false)
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.left.square")
+                                Text("Standard Door (Pull to Exit)")
+                                Spacer()
+                                if viewModel.selectedDoorAction == .pull &&
+                                   viewModel.selectedDoorActionFromOther == .push {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                        
+                        Button {
+                            viewModel.setDoorAsSwinging()
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.left.and.right")
+                                Text("Swinging Door (Push Both Ways)")
+                                Spacer()
+                                if viewModel.selectedDoorAction == .push &&
+                                   viewModel.selectedDoorActionFromOther == .push {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                        
+                        Button {
+                            viewModel.setDoorAsAutomatic()
+                        } label: {
+                            HStack {
+                                Image(systemName: "sensor")
+                                Text("Automatic Door")
+                                Spacer()
+                                if viewModel.selectedDoorAction == .automatic {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                        
+                        Button {
+                            viewModel.setDoorAsOpen()
+                        } label: {
+                            HStack {
+                                Image(systemName: "rectangle.portrait")
+                                Text("Open Doorway")
+                                Spacer()
+                                if viewModel.selectedDoorAction == .walkThrough {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section(header: Text("Custom Actions")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("From \(viewModel.currentRoom?.name ?? "Current Room"):")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        Picker("Action", selection: $viewModel.selectedDoorAction) {
+                            ForEach(DoorAction.allCases, id: \.self) { action in
+                                Text(action.displayName).tag(action)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        
+                        Divider()
+                        
+                        Text("From Other Room:")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        
+                        Picker("Action", selection: $viewModel.selectedDoorActionFromOther) {
+                            ForEach(DoorAction.allCases, id: \.self) { action in
+                                Text(action.displayName).tag(action)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
+                Section {
+                    Text("You'll select the destination room next")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("Doorway Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        viewModel.showingDoorwayDetails = false
+                        viewModel.cancelPlacement()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Next") {
+                        viewModel.showingDoorwayDetails = false
+                        viewModel.confirmDoorwayPlacement()
+                    }
+                    .disabled(viewModel.tempItemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    // MARK: - Room Selector Sheet
+    private var roomSelectorSheet: some View {
+        NavigationView {
+            List {
+                ForEach(viewModel.currentMap.rooms) { room in
+                    Button {
+                        if viewModel.isCompletingDoorway {
+                            viewModel.completeDoorwayWithDestinationRoom(toRoom: room.id.uuidString)
+                        } else {
+                            viewModel.selectRoom(id: room.id.uuidString)
+                        }
+                        viewModel.showingRoomSelector = false
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(room.name)
+                                    .font(.headline)
+                                Text(room.type.displayName)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if viewModel.currentRoomId == room.id.uuidString {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(viewModel.isCompletingDoorway ? "Select Destination Room" : "Select Current Room")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        viewModel.showingRoomSelector = false
+                        if viewModel.isCompletingDoorway {
+                            viewModel.isCompletingDoorway = false
+                            viewModel.cancelPlacement()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Top Controls
     private var topControlsView: some View {
         HStack {
-            // Map Info
             VStack(alignment: .leading, spacing: 4) {
                 Text(viewModel.currentMap.name)
                     .font(.headline)
                     .foregroundColor(.white)
-                
+
+                if let room = viewModel.currentRoom {
+                    HStack {
+                        Image(systemName: "location.fill")
+                            .font(.caption)
+                        Text("\(room.name) (\(room.type.displayName))")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.white.opacity(0.9))
+                }
+
                 Text("\(viewModel.currentMap.beacons.count) beacons, \(viewModel.currentMap.doorways.count) doorways")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.8))
             }
-            
+
             Spacer()
-            
-            // Reset Button
+
+            Button {
+                viewModel.showingRoomSelector = true
+            } label: {
+                Image(systemName: "square.grid.3x3")
+                    .font(.title2)
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.3))
+                    .clipShape(Circle())
+            }
+
             Button {
                 viewModel.resetARSession()
             } label: {
@@ -145,51 +459,40 @@ struct BuildMapView: View {
         .background(.black.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
-    
+
     // MARK: - Crosshair
     private var crosshairView: some View {
         ZStack {
-            // Outer circle
             Circle()
                 .stroke(Color.white, lineWidth: 2)
                 .frame(width: 30, height: 30)
-            
-            // Center dot
             Circle()
                 .fill(Color.white)
                 .frame(width: 4, height: 4)
-            
-            // Crosshair lines
             Rectangle()
                 .fill(Color.white)
                 .frame(width: 20, height: 1)
-            
             Rectangle()
                 .fill(Color.white)
                 .frame(width: 1, height: 20)
         }
         .shadow(color: .black, radius: 2)
     }
-    
+
     // MARK: - Bottom Controls
     private var bottomControlsView: some View {
         VStack(spacing: 16) {
-            // Placement Mode Selector
             placementModeSelector
-            
-            // Category/Type Selector
+
             if viewModel.placementMode == .beacon {
                 beaconCategorySelector
-            } else {
+            } else if viewModel.placementMode == .doorway {
                 doorwayTypeSelector
             }
-            
-            // Placement Instructions
+
             placementInstructions
-            
-            // Action Buttons
+
             HStack(spacing: 20) {
-                // Clear Map
                 Button {
                     viewModel.clearMap()
                 } label: {
@@ -201,27 +504,15 @@ struct BuildMapView: View {
                         .clipShape(Circle())
                 }
                 .disabled(viewModel.currentMap.beacons.isEmpty && viewModel.currentMap.doorways.isEmpty)
-                
+
                 Spacer()
-                
-                // Cancel Doorway (if in progress)
-                if viewModel.isPlacingDoorway {
-                    Button("Cancel Doorway") {
-                        viewModel.cancelPlacement()
-                    }
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.black.opacity(0.3))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
             }
         }
         .padding()
         .background(.black.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
-    
+
     // MARK: - Placement Mode Selector
     private var placementModeSelector: some View {
         HStack(spacing: 0) {
@@ -235,7 +526,7 @@ struct BuildMapView: View {
                     }
                     .font(.subheadline.weight(.medium))
                     .foregroundColor(viewModel.placementMode == mode ? .black : .white)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(viewModel.placementMode == mode ? .white : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -246,8 +537,8 @@ struct BuildMapView: View {
         .background(.black.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
-    
-    // MARK: - Beacon Category Selector
+
+    // MARK: - Category Selectors
     private var beaconCategorySelector: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -262,22 +553,18 @@ struct BuildMapView: View {
                             .padding(.vertical, 6)
                             .background(viewModel.selectedBeaconCategory == category ? .white : .clear)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(.white.opacity(0.3), lineWidth: 1)
-                            )
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.3), lineWidth: 1))
                     }
                 }
             }
             .padding(.horizontal)
         }
     }
-    
-    // MARK: - Doorway Type Selector
+
     private var doorwayTypeSelector: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(DoorwayType.allCases, id: \.self) { type in
+                ForEach(DoorwayType.allCases.prefix(5), id: \.self) { type in
                     Button {
                         viewModel.selectedDoorwayType = type
                     } label: {
@@ -288,66 +575,58 @@ struct BuildMapView: View {
                             .padding(.vertical, 6)
                             .background(viewModel.selectedDoorwayType == type ? .white : .clear)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(.white.opacity(0.3), lineWidth: 1)
-                            )
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(.white.opacity(0.3), lineWidth: 1))
                     }
                 }
             }
             .padding(.horizontal)
         }
     }
-    
-    // MARK: - Placement Instructions
+
+    // MARK: - Instructions
     private var placementInstructions: some View {
         VStack(spacing: 4) {
-            if viewModel.placementMode == .beacon {
+            if viewModel.currentRoom == nil {
+                Text("Select a room first")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.orange)
+            } else if viewModel.placementMode == .beacon {
                 Text("Tap to place beacon")
                     .font(.subheadline.weight(.medium))
                     .foregroundColor(.white)
-                
-                Text("Point at the floor and tap to place a \(viewModel.selectedBeaconCategory.displayName.lowercased()) beacon")
+                Text("Point at floor in \(viewModel.currentRoom?.name ?? "room")")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.8))
-                    .multilineTextAlignment(.center)
+            } else if viewModel.placementMode == .doorway {
+                Text("Tap doorway center")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.white)
+                Text("Point at center of doorway opening")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
             } else {
-                if viewModel.isPlacingDoorway {
-                    Text("Tap second corner")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundColor(.orange)
-                    
-                    Text("Tap the other side of the doorway to complete")
-                        .font(.caption)
-                        .foregroundColor(.orange.opacity(0.8))
-                        .multilineTextAlignment(.center)
-                } else {
-                    Text("Tap first corner")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundColor(.white)
-                    
-                    Text("Tap one side of the doorway opening")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
-                        .multilineTextAlignment(.center)
-                }
+                Text("Tap to place waypoint")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.white)
+                Text("Navigation guidance point")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
             }
         }
+        .multilineTextAlignment(.center)
     }
-    
+
     // MARK: - AR Session Status
     private var arSessionStatusView: some View {
         VStack(spacing: 12) {
             ProgressView()
                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                 .scaleEffect(1.2)
-            
             Text(viewModel.arSessionState.displayName)
                 .font(.headline)
                 .foregroundColor(.white)
-            
             if case .starting = viewModel.arSessionState {
-                Text("Move your device around to detect the floor")
+                Text("Move your device to detect the floor")
                     .font(.subheadline)
                     .foregroundColor(.white.opacity(0.8))
                     .multilineTextAlignment(.center)
@@ -357,22 +636,17 @@ struct BuildMapView: View {
         .background(.black.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
-    
-    // MARK: - Save Functions
+
+    // MARK: - Helper Functions
     private func saveMapWithName(_ name: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
-        
-        // Update the map name first
         viewModel.updateMapName(trimmedName)
-        
-        // Then save the map using the ViewModel's save method
         viewModel.saveMap()
-        
         showingSaveConfirmation = true
         mapNameInput = ""
     }
-    
+
     private func saveMapWithCurrentName() {
         viewModel.saveMap()
         showingSaveConfirmation = true
@@ -389,7 +663,6 @@ struct ARViewContainer: UIViewRepresentable {
         arView.session = viewModel.session
         arView.scene = SCNScene()
         
-        // Add tap gesture
         let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         arView.addGestureRecognizer(tapGesture)
         
@@ -405,43 +678,37 @@ struct ARViewContainer: UIViewRepresentable {
     }
 }
 
-// MARK: - AR View Coordinator
+// MARK: - AR View Coordinator (FIXED)
 extension ARViewContainer {
     class Coordinator: NSObject, ARSCNViewDelegate {
         let viewModel: BuildMapViewModel
         private var beaconNodes: [UUID: SCNNode] = [:]
         private var doorwayNodes: [UUID: SCNNode] = [:]
-        private var previewNode: SCNNode?
-        
+        private var waypointNodes: [UUID: SCNNode] = [:]
+
         init(viewModel: BuildMapViewModel) {
             self.viewModel = viewModel
         }
-        
+
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let sceneView = gesture.view as? ARSCNView else { return }
             let location = gesture.location(in: sceneView)
-            
+
             Task { @MainActor in
                 viewModel.handleTap(at: location, in: sceneView)
             }
         }
-        
+
         func updateScene(_ sceneView: ARSCNView) {
             Task { @MainActor in
-                // Update beacon nodes
                 await updateBeaconNodes(sceneView)
-                
-                // Update doorway nodes
                 await updateDoorwayNodes(sceneView)
-                
-                // Update preview for doorway placement
-                await updateDoorwayPreview(sceneView)
+                await updateWaypointNodes(sceneView)
             }
         }
-        
+
         @MainActor
         private func updateBeaconNodes(_ sceneView: ARSCNView) async {
-            // Remove nodes for deleted beacons
             let currentBeaconIds = Set(viewModel.currentMap.beacons.map { $0.id })
             for (id, node) in beaconNodes {
                 if !currentBeaconIds.contains(id) {
@@ -449,8 +716,7 @@ extension ARViewContainer {
                     beaconNodes.removeValue(forKey: id)
                 }
             }
-            
-            // Add nodes for new beacons
+
             for beacon in viewModel.currentMap.beacons {
                 if beaconNodes[beacon.id] == nil {
                     let node = createBeaconNode(for: beacon)
@@ -459,10 +725,9 @@ extension ARViewContainer {
                 }
             }
         }
-        
+
         @MainActor
         private func updateDoorwayNodes(_ sceneView: ARSCNView) async {
-            // Remove nodes for deleted doorways
             let currentDoorwayIds = Set(viewModel.currentMap.doorways.map { $0.id })
             for (id, node) in doorwayNodes {
                 if !currentDoorwayIds.contains(id) {
@@ -470,8 +735,7 @@ extension ARViewContainer {
                     doorwayNodes.removeValue(forKey: id)
                 }
             }
-            
-            // Add nodes for new doorways
+
             for doorway in viewModel.currentMap.doorways {
                 if doorwayNodes[doorway.id] == nil {
                     let node = createDoorwayNode(for: doorway)
@@ -480,51 +744,45 @@ extension ARViewContainer {
                 }
             }
         }
-        
+
         @MainActor
-        private func updateDoorwayPreview(_ sceneView: ARSCNView) async {
-            // Remove existing preview
-            previewNode?.removeFromParentNode()
-            previewNode = nil
-            
-            // Show preview line if placing doorway and have first point
-            if viewModel.isPlacingDoorway, let firstPoint = viewModel.firstDoorwayPoint {
-                // Create a preview line from first point to center of screen
-                let centerPoint = sceneView.center
-                if let raycastResult = sceneView.raycastQuery(from: centerPoint, allowing: .estimatedPlane, alignment: .horizontal) {
-                    let results = sceneView.session.raycast(raycastResult)
-                    if let result = results.first {
-                        let secondPoint = result.worldTransform.translation
-                        let previewLineNode = createPreviewDoorwayNode(from: firstPoint, to: secondPoint)
-                        sceneView.scene.rootNode.addChildNode(previewLineNode)
-                        previewNode = previewLineNode
-                    }
+        private func updateWaypointNodes(_ sceneView: ARSCNView) async {
+            let currentWaypointIds = Set(viewModel.currentMap.waypoints.map { $0.id })
+            for (id, node) in waypointNodes {
+                if !currentWaypointIds.contains(id) {
+                    node.removeFromParentNode()
+                    waypointNodes.removeValue(forKey: id)
+                }
+            }
+
+            for waypoint in viewModel.currentMap.waypoints {
+                if waypointNodes[waypoint.id] == nil {
+                    let node = createWaypointNode(for: waypoint)
+                    sceneView.scene.rootNode.addChildNode(node)
+                    waypointNodes[waypoint.id] = node
                 }
             }
         }
-        
+
         private func createBeaconNode(for beacon: Beacon) -> SCNNode {
             let node = SCNNode()
-            
-            // Create flag pole
+
             let poleGeometry = SCNCylinder(radius: 0.01, height: 0.3)
             poleGeometry.firstMaterial?.diffuse.contents = UIColor.darkGray
             let poleNode = SCNNode(geometry: poleGeometry)
             poleNode.position = SCNVector3(0, 0.15, 0)
             node.addChildNode(poleNode)
-            
-            // Create flag
+
             let flagGeometry = SCNPlane(width: 0.15, height: 0.1)
             let color = beacon.category.color
-            flagGeometry.firstMaterial?.diffuse.contents = UIColor(red: CGFloat(color.red),
-                                                                  green: CGFloat(color.green),
-                                                                  blue: CGFloat(color.blue),
-                                                                  alpha: 0.8)
+            let flagColor = beacon.isObstacle
+                ? UIColor(red: 1.0, green: 0.5, blue: 0.0, alpha: 0.8)
+                : UIColor(red: CGFloat(color.red), green: CGFloat(color.green), blue: CGFloat(color.blue), alpha: 0.8)
+            flagGeometry.firstMaterial?.diffuse.contents = flagColor
             let flagNode = SCNNode(geometry: flagGeometry)
             flagNode.position = SCNVector3(0.075, 0.25, 0)
             node.addChildNode(flagNode)
-            
-            // Add text label
+
             let textGeometry = SCNText(string: beacon.name, extrusionDepth: 0.01)
             textGeometry.font = UIFont.systemFont(ofSize: 0.05)
             textGeometry.firstMaterial?.diffuse.contents = UIColor.white
@@ -532,83 +790,84 @@ extension ARViewContainer {
             textNode.position = SCNVector3(-0.05, 0.35, 0)
             textNode.scale = SCNVector3(0.002, 0.002, 0.002)
             node.addChildNode(textNode)
-            
-            // Set position
+
+            if let props = beacon.physicalProperties, props.isObstacle {
+                let boxGeometry = SCNBox(
+                    width: CGFloat(props.boundingBox.width),
+                    height: CGFloat(props.boundingBox.height),
+                    length: CGFloat(props.boundingBox.depth),
+                    chamferRadius: 0
+                )
+                boxGeometry.firstMaterial?.diffuse.contents = UIColor.red.withAlphaComponent(0.3)
+                let boxNode = SCNNode(geometry: boxGeometry)
+                boxNode.position = SCNVector3(0, props.boundingBox.height / 2, 0)
+                node.addChildNode(boxNode)
+            }
+
             node.position = SCNVector3(beacon.position.x, beacon.position.y, beacon.position.z)
-            
             return node
         }
-        
+
+        private func createWaypointNode(for waypoint: Waypoint) -> SCNNode {
+            let node = SCNNode()
+
+            let markerGeometry = SCNSphere(radius: 0.05)
+            markerGeometry.firstMaterial?.diffuse.contents = UIColor.cyan.withAlphaComponent(0.7)
+            let markerNode = SCNNode(geometry: markerGeometry)
+            markerNode.position = SCNVector3(0, 0.05, 0)
+            node.addChildNode(markerNode)
+
+            let textGeometry = SCNText(string: waypoint.name, extrusionDepth: 0.01)
+            textGeometry.font = UIFont.systemFont(ofSize: 0.04)
+            textGeometry.firstMaterial?.diffuse.contents = UIColor.white
+            let textNode = SCNNode(geometry: textGeometry)
+            textNode.position = SCNVector3(-0.04, 0.12, 0)
+            textNode.scale = SCNVector3(0.002, 0.002, 0.002)
+            node.addChildNode(textNode)
+
+            node.position = SCNVector3(waypoint.coordinates.x, waypoint.coordinates.y, waypoint.coordinates.z)
+            return node
+        }
+
+        // FIXED: Use doorway.position instead of doorway.coordinates
         private func createDoorwayNode(for doorway: Doorway) -> SCNNode {
             let node = SCNNode()
             
-            // Create line geometry
-            let start = doorway.startPoint
-            let end = doorway.endPoint
+            let markerGeometry = SCNCylinder(radius: 0.05, height: 0.1)
+            let color = doorway.doorType.color
+            markerGeometry.firstMaterial?.diffuse.contents = UIColor(
+                red: CGFloat(color.red),
+                green: CGFloat(color.green),
+                blue: CGFloat(color.blue),
+                alpha: 0.9
+            )
+            let markerNode = SCNNode(geometry: markerGeometry)
+            markerNode.position = SCNVector3(0, 0.05, 0)
+            node.addChildNode(markerNode)
             
-            let lineGeometry = createLineGeometry(from: start, to: end)
-            let color = doorway.doorwayType.color
-            lineGeometry.firstMaterial?.diffuse.contents = UIColor(red: CGFloat(color.red),
-                                                                  green: CGFloat(color.green),
-                                                                  blue: CGFloat(color.blue),
-                                                                  alpha: 0.9)
-            
-            let lineNode = SCNNode(geometry: lineGeometry)
+            let widthLine = SCNCylinder(radius: 0.02, height: CGFloat(doorway.width))
+            widthLine.firstMaterial?.diffuse.contents = UIColor(
+                red: CGFloat(color.red),
+                green: CGFloat(color.green),
+                blue: CGFloat(color.blue),
+                alpha: 0.7
+            )
+            let lineNode = SCNNode(geometry: widthLine)
+            lineNode.position = SCNVector3(0, 0.05, 0)
+            lineNode.eulerAngles = SCNVector3(0, 0, Float.pi / 2)
             node.addChildNode(lineNode)
             
-            // Add endpoint markers
-            let startMarker = createEndpointMarker()
-            startMarker.position = SCNVector3(start.x, start.y + 0.05, start.z)
-            node.addChildNode(startMarker)
+            let textGeometry = SCNText(string: doorway.name, extrusionDepth: 0.01)
+            textGeometry.font = UIFont.systemFont(ofSize: 0.04)
+            textGeometry.firstMaterial?.diffuse.contents = UIColor.white
+            let textNode = SCNNode(geometry: textGeometry)
+            textNode.position = SCNVector3(-0.1, 0.15, 0)
+            textNode.scale = SCNVector3(0.002, 0.002, 0.002)
+            node.addChildNode(textNode)
             
-            let endMarker = createEndpointMarker()
-            endMarker.position = SCNVector3(end.x, end.y + 0.05, end.z)
-            node.addChildNode(endMarker)
-            
+            // FIXED: Use position property
+            node.position = SCNVector3(doorway.position.x, doorway.position.y, doorway.position.z)
             return node
-        }
-        
-        private func createPreviewDoorwayNode(from start: simd_float3, to end: simd_float3) -> SCNNode {
-            let node = SCNNode()
-            
-            let lineGeometry = createLineGeometry(from: start, to: end)
-            lineGeometry.firstMaterial?.diffuse.contents = UIColor.yellow.withAlphaComponent(0.7)
-            
-            let lineNode = SCNNode(geometry: lineGeometry)
-            node.addChildNode(lineNode)
-            
-            return node
-        }
-        
-        private func createLineGeometry(from start: simd_float3, to end: simd_float3) -> SCNGeometry {
-            let vector = end - start
-            let length = simd_length(vector)
-            
-            let cylinder = SCNCylinder(radius: 0.01, height: CGFloat(length))
-            let node = SCNNode(geometry: cylinder)
-            
-            // Position and rotate the cylinder to form a line
-            let midpoint = (start + end) / 2
-            node.position = SCNVector3(midpoint.x, midpoint.y, midpoint.z)
-            
-            // Calculate rotation to align with line direction
-            let direction = simd_normalize(vector)
-            let up = simd_float3(0, 1, 0)
-            let angle = acos(simd_dot(up, direction))
-            let axis = simd_cross(up, direction)
-            
-            if simd_length(axis) > 0.001 {
-                let normalizedAxis = simd_normalize(axis)
-                node.rotation = SCNVector4(normalizedAxis.x, normalizedAxis.y, normalizedAxis.z, angle)
-            }
-            
-            return cylinder
-        }
-        
-        private func createEndpointMarker() -> SCNNode {
-            let sphere = SCNSphere(radius: 0.02)
-            sphere.firstMaterial?.diffuse.contents = UIColor.white
-            return SCNNode(geometry: sphere)
         }
     }
 }

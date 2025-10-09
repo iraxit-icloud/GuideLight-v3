@@ -1,112 +1,83 @@
 //
-//  IndoorMap.swift
-//  Mapping v2
+//  IndoorMap.swift - SIMPLIFIED
+//  No room boundaries, simple structure
 //
-//  Created by Indraneel Rakshit on 9/20/25.
-//
-
 
 import Foundation
 import simd
 
-// MARK: - Indoor Map Model
+// MARK: - Indoor Map Model (Simplified)
 struct IndoorMap: Codable, Identifiable {
     let id: UUID
     let name: String
     let description: String?
+    let rooms: [Room]
     let beacons: [Beacon]
     let doorways: [Doorway]
+    let waypoints: [Waypoint]
     let metadata: MapMetadata
     let createdAt: Date
     let updatedAt: Date
     
-    init(name: String, description: String? = nil, beacons: [Beacon] = [], doorways: [Doorway] = []) {
+    init(name: String, description: String? = nil, rooms: [Room] = [],
+         beacons: [Beacon] = [], doorways: [Doorway] = [], waypoints: [Waypoint] = []) {
         self.id = UUID()
         self.name = name
         self.description = description
+        self.rooms = rooms
         self.beacons = beacons
         self.doorways = doorways
+        self.waypoints = waypoints
         self.metadata = MapMetadata()
         self.createdAt = Date()
         self.updatedAt = Date()
     }
     
-    // Update map with new beacons/doorways
-    func updated(beacons: [Beacon]? = nil, doorways: [Doorway]? = nil) -> IndoorMap {
+    func updated(rooms: [Room]? = nil, beacons: [Beacon]? = nil,
+                doorways: [Doorway]? = nil, waypoints: [Waypoint]? = nil) -> IndoorMap {
         return IndoorMap(
             id: self.id,
             name: self.name,
             description: self.description,
+            rooms: rooms ?? self.rooms,
             beacons: beacons ?? self.beacons,
             doorways: doorways ?? self.doorways,
+            waypoints: waypoints ?? self.waypoints,
             metadata: self.metadata.updated(),
             createdAt: self.createdAt,
             updatedAt: Date()
         )
     }
     
-    private init(id: UUID, name: String, description: String?, beacons: [Beacon], 
-                doorways: [Doorway], metadata: MapMetadata, createdAt: Date, updatedAt: Date) {
+    private init(id: UUID, name: String, description: String?, rooms: [Room],
+                beacons: [Beacon], doorways: [Doorway], waypoints: [Waypoint],
+                metadata: MapMetadata, createdAt: Date, updatedAt: Date) {
         self.id = id
         self.name = name
         self.description = description
+        self.rooms = rooms
         self.beacons = beacons
         self.doorways = doorways
+        self.waypoints = waypoints
         self.metadata = metadata
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
     
-    // Map bounds calculation
-    var bounds: MapBounds {
-        var minX: Float = 0, maxX: Float = 0
-        var minZ: Float = 0, maxZ: Float = 0
-        
-        let allPoints = beacons.map { $0.position } + 
-                       doorways.flatMap { [$0.startPoint, $0.endPoint] }
-        
-        if !allPoints.isEmpty {
-            minX = allPoints.map { $0.x }.min() ?? 0
-            maxX = allPoints.map { $0.x }.max() ?? 0
-            minZ = allPoints.map { $0.z }.min() ?? 0
-            maxZ = allPoints.map { $0.z }.max() ?? 0
-        }
-        
-        return MapBounds(minX: minX, maxX: maxX, minZ: minZ, maxZ: maxZ)
+    func room(withId id: String) -> Room? {
+        return rooms.first { $0.id.uuidString == id }
     }
     
-    // Find beacon by name
     func beacon(named name: String) -> Beacon? {
         return beacons.first { $0.name.lowercased() == name.lowercased() }
     }
     
-    // Find nearest beacon to a position
-    func nearestBeacon(to position: simd_float3, maxDistance: Float = Float.infinity) -> Beacon? {
-        return beacons
-            .filter { $0.distance(to: position) <= maxDistance }
-            .min { $0.distance(to: position) < $1.distance(to: position) }
+    func beacons(inRoom roomId: String) -> [Beacon] {
+        return beacons.filter { $0.roomId == roomId }
     }
     
-    // Find doorways near a position
-    func nearbyDoorways(to position: simd_float3, threshold: Float = 1.0) -> [Doorway] {
-        return doorways.filter { $0.isNearDoorway(position, threshold: threshold) }
-    }
-    
-    // Calculate distance matrix between all beacons
-    func distanceMatrix() -> [[Float]] {
-        let count = beacons.count
-        var matrix = Array(repeating: Array(repeating: Float.infinity, count: count), count: count)
-        
-        for i in 0..<count {
-            matrix[i][i] = 0
-            for j in (i+1)..<count {
-                let distance = beacons[i].distance(to: beacons[j])
-                matrix[i][j] = distance
-                matrix[j][i] = distance
-            }
-        }
-        
-        return matrix
+    func doorways(connectingRoom roomId: String) -> [Doorway] {
+        return doorways.filter { $0.connectsRooms.contains(roomId: roomId) }
     }
 }
 
@@ -115,13 +86,11 @@ struct MapMetadata: Codable {
     let version: String
     let coordinateSystem: CoordinateSystem
     let units: String
-    let calibrationData: CalibrationData?
     
     init(coordinateSystem: CoordinateSystem = .arkit, units: String = "meters") {
-        self.version = "1.0"
+        self.version = "2.2"
         self.coordinateSystem = coordinateSystem
         self.units = units
-        self.calibrationData = nil
     }
     
     func updated() -> MapMetadata {
@@ -129,48 +98,151 @@ struct MapMetadata: Codable {
     }
 }
 
-// MARK: - Coordinate System
 enum CoordinateSystem: String, Codable {
-    case arkit = "arkit"
+    case arkit = "arkit_world"
     case local = "local"
-    case utm = "utm"
 }
 
-// MARK: - Calibration Data
-struct CalibrationData: Codable {
-    let floorHeight: Float
-    let magneticDeclination: Float?
-    let referencePoints: [ReferencePoint]
-}
-
-struct ReferencePoint: Codable {
-    let name: String
-    let position: simd_float3
-    let realWorldCoordinate: simd_float3?
-}
-
-// MARK: - Map Bounds
-struct MapBounds {
-    let minX: Float
-    let maxX: Float
-    let minZ: Float
-    let maxZ: Float
-    
-    var width: Float { return maxX - minX }
-    var depth: Float { return maxZ - minZ }
-    var center: simd_float2 { return simd_float2((minX + maxX) / 2, (minZ + maxZ) / 2) }
-}
-
-// MARK: - File Management Extensions
+// MARK: - Export to JSON
 extension IndoorMap {
-    // Generate filename for saving
+    
     var filename: String {
         let cleanName = name.replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "[^a-zA-Z0-9_]", with: "", options: .regularExpression)
         return "\(cleanName)_\(id.uuidString.prefix(8)).json"
     }
     
-    // Convert to JSON data
+    func toNewJSONFormat() -> [String: Any] {
+        return [
+            "metadata": [
+                "version": "2.2",
+                "createdDate": createdAt.timeIntervalSince1970,
+                "lastModified": updatedAt.timeIntervalSince1970,
+                "createdBy": "ios_app",
+                "coordinateSystem": metadata.coordinateSystem.rawValue,
+                "units": metadata.units
+            ],
+            "mapName": name,
+            "description": description ?? "",
+            "rooms": rooms.map { room in
+                [
+                    "id": room.id.uuidString,
+                    "name": room.name,
+                    "type": room.type.rawValue,
+                    "floorSurface": room.floorSurface.rawValue
+                ]
+            },
+            "beacons": beacons.map { beacon in
+                var data: [String: Any] = [
+                    "id": beacon.id.uuidString,
+                    "name": beacon.name,
+                    "category": beacon.category.rawValue,
+                    "coordinates": [
+                        "x": Double(beacon.position.x),
+                        "y": Double(beacon.position.y),
+                        "z": Double(beacon.position.z)
+                    ],
+                    "roomId": beacon.roomId,
+                    "audioLandmark": beacon.audioLandmark ?? beacon.name,
+                    "timestamp": beacon.timestamp.timeIntervalSince1970,
+                    "isAccessible": beacon.isAccessible
+                ]
+                
+                if let props = beacon.physicalProperties {
+                    data["physicalProperties"] = [
+                        "isObstacle": props.isObstacle,
+                        "boundingBox": [
+                            "width": Double(props.boundingBox.width),
+                            "depth": Double(props.boundingBox.depth),
+                            "height": Double(props.boundingBox.height)
+                        ],
+                        "avoidanceRadius": Double(props.avoidanceRadius),
+                        "canRouteAround": props.canRouteAround,
+                        "obstacleType": props.obstacleType.rawValue
+                    ]
+                } else {
+                    data["physicalProperties"] = NSNull()
+                }
+                
+                return data
+            },
+            "doorways": doorways.map { doorway in
+                [
+                    "id": doorway.id.uuidString,
+                    "name": doorway.name,
+                    "position": [
+                        "x": Double(doorway.position.x),
+                        "y": Double(doorway.position.y),
+                        "z": Double(doorway.position.z)
+                    ],
+                    "width": Double(doorway.width),
+                    "height": Double(doorway.height),
+                    "connectsRooms": [
+                        "roomA": doorway.connectsRooms.roomA,
+                        "roomB": doorway.connectsRooms.roomB
+                    ],
+                    "doorType": doorway.doorType.rawValue,
+                    "doorActions": [
+                        "fromRoomA": doorway.doorActions.fromRoomA.rawValue,
+                        "fromRoomB": doorway.doorActions.fromRoomB.rawValue
+                    ],
+                    "isAccessible": doorway.isAccessible,
+                    "timestamp": doorway.timestamp.timeIntervalSince1970
+                ]
+            },
+            "waypoints": waypoints.map { waypoint in
+                [
+                    "id": waypoint.id.uuidString,
+                    "name": waypoint.name,
+                    "coordinates": [
+                        "x": Double(waypoint.coordinates.x),
+                        "y": Double(waypoint.coordinates.y),
+                        "z": Double(waypoint.coordinates.z)
+                    ],
+                    "roomId": waypoint.roomId,
+                    "description": waypoint.description ?? "",
+                    "audioLandmark": waypoint.audioLandmark ?? waypoint.name,
+                    "waypointType": waypoint.waypointType.rawValue,
+                    "isAccessible": waypoint.isAccessible
+                ]
+            },
+            "edgeComputationRules": [
+                "version": "1.0",
+                "enabled": true,
+                "rules": [
+                    "withinRoomLineOfSight": [
+                        "enabled": true,
+                        "description": "Connect beacons in same room if clear path",
+                        "maxDistance": 10.0,
+                        "checkObstacles": true
+                    ],
+                    "crossRoomViaDoorways": [
+                        "enabled": true,
+                        "description": "Route between rooms only via doorways",
+                        "allowDirectCrossRoom": false
+                    ],
+                    "avoidBeaconObstacles": [
+                        "enabled": true,
+                        "description": "Route around obstacle beacons",
+                        "useAvoidanceRadius": true
+                    ]
+                ],
+                "pathWeights": [
+                    "withinRoom": 1.0,
+                    "doorwayCrossing": 1.2,
+                    "hallwayTraversal": 1.0,
+                    "obstacleAvoidance": 1.3
+                ]
+            ],
+            "navigationSettings": [
+                "defaultWalkingSpeed": 1.2,
+                "obstacleDetectionRange": 8,
+                "recalculationTriggerDistance": 2.0,
+                "audioGuidanceInterval": 3.0
+            ]
+        ]
+    }
+    
     func toJSONData() throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -178,7 +250,6 @@ extension IndoorMap {
         return try encoder.encode(self)
     }
     
-    // Create from JSON data
     static func fromJSONData(_ data: Data) throws -> IndoorMap {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

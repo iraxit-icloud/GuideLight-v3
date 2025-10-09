@@ -4,7 +4,7 @@ import SceneKit
 import Combine
 import simd
 
-// MARK: - Build Map View Model
+// MARK: - Build Map View Model (FIXED)
 @MainActor
 class BuildMapViewModel: NSObject, ObservableObject {
     
@@ -13,22 +13,45 @@ class BuildMapViewModel: NSObject, ObservableObject {
     @Published var arSessionState: ARSessionState = .notStarted
     @Published var placementMode: PlacementMode = .beacon
     @Published var currentMap: IndoorMap
-    @Published var selectedBeaconCategory: BeaconCategory = .general
-    @Published var selectedDoorwayType: DoorwayType = .standard
+    @Published var selectedBeaconCategory: BeaconCategory = .destination
+    @Published var selectedDoorwayType: DoorwayType = .hinged_right  // FIXED: Use actual enum case
     @Published var showingNameDialog = false
     @Published var tempItemName = ""
     @Published var errorMessage: String?
     @Published var isPlacingDoorway = false
     @Published var firstDoorwayPoint: simd_float3?
     
+    // Room setup
+    @Published var showingRoomSetup = true
+    @Published var tempRoomName = ""
+    @Published var tempRoomType: RoomType = .general
+    @Published var tempFloorSurface: FloorSurface = .carpet
+    @Published var currentRoomId: String?
+    @Published var showingRoomSelector = false
+    
+    // Obstacle properties
+    @Published var isObstacleBeacon = false
+    @Published var obstacleWidth: Float = 0.6
+    @Published var obstacleDepth: Float = 0.4
+    @Published var obstacleHeight: Float = 1.0
+    
+    // Doorway properties
+    @Published var doorwayWidth: Float = 0.9
+    @Published var showingDoorwayDetails = false
+    @Published var isCompletingDoorway = false
+    
+    // FIXED: Door action properties
+    @Published var selectedDoorAction: DoorAction = .push
+    @Published var selectedDoorActionFromOther: DoorAction = .pull
+    
     // MARK: - Private Properties
     private var arSession = ARSession()
     private var cancellables = Set<AnyCancellable>()
     private var floorHeightOffset: Float = 0.0
     private var pendingBeaconPosition: simd_float3?
-    private var pendingDoorwayStartPosition: simd_float3?
+    private var pendingDoorwayPosition: simd_float3?
+    private var pendingDoorwayFromRoom: String?
     
-    // Expose AR session for view access
     var session: ARSession { arSession }
     
     // MARK: - Initialization
@@ -38,31 +61,76 @@ class BuildMapViewModel: NSObject, ObservableObject {
         setupARSession()
     }
     
+    // MARK: - Room Setup
+    func addRoom() {
+        let name = tempRoomName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        
+        let room = Room(
+            name: name,
+            type: tempRoomType,
+            floorSurface: tempFloorSurface
+        )
+        
+        var updatedRooms = currentMap.rooms
+        updatedRooms.append(room)
+        currentMap = currentMap.updated(rooms: updatedRooms)
+        
+        if currentRoomId == nil {
+            currentRoomId = room.id.uuidString
+        }
+        
+        tempRoomName = ""
+        tempRoomType = .general
+        tempFloorSurface = .carpet
+        
+        print("✅ ROOM ADDED: \(name) (\(room.type.displayName))")
+    }
+    
+    func removeRoom(at index: Int) {
+        guard index < currentMap.rooms.count else { return }
+        var updatedRooms = currentMap.rooms
+        updatedRooms.remove(at: index)
+        currentMap = currentMap.updated(rooms: updatedRooms)
+    }
+    
+    func completeRoomSetup() {
+        guard !currentMap.rooms.isEmpty else {
+            errorMessage = "Please add at least one room before continuing"
+            return
+        }
+        showingRoomSetup = false
+        startARSession()
+    }
+    
+    func selectRoom(id: String) {
+        currentRoomId = id
+    }
+    
+    var currentRoom: Room? {
+        guard let roomId = currentRoomId else { return nil }
+        return currentMap.room(withId: roomId)
+    }
+    
     // MARK: - AR Session Management
     private func setupARSession() {
         arSession.delegate = self
-        
-        // Configure AR session for floor plane detection
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
         configuration.environmentTexturing = .automatic
-        
         arSession.run(configuration)
         arSessionState = .starting
     }
     
     func startARSession() {
         guard !isARSessionRunning else { return }
-        
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
         configuration.environmentTexturing = .automatic
-        
         arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         isARSessionRunning = true
         arSessionState = .running
-        
-        print("🔥 Started new AR mapping session")
+        print("🔥 Started AR mapping session")
     }
     
     func pauseARSession() {
@@ -77,15 +145,12 @@ class BuildMapViewModel: NSObject, ObservableObject {
         firstDoorwayPoint = nil
         isPlacingDoorway = false
         arSessionState = .running
-        
         print("🔄 Reset AR mapping session")
     }
     
     // MARK: - Placement Mode Management
     func setPlacementMode(_ mode: PlacementMode) {
         placementMode = mode
-        
-        // Reset doorway placement if switching away from doorway mode
         if mode != .doorway {
             cancelDoorwayPlacement()
         }
@@ -94,14 +159,19 @@ class BuildMapViewModel: NSObject, ObservableObject {
     private func cancelDoorwayPlacement() {
         isPlacingDoorway = false
         firstDoorwayPoint = nil
-        pendingDoorwayStartPosition = nil
+        pendingDoorwayPosition = nil
+        pendingDoorwayFromRoom = nil
     }
     
     // MARK: - Placement Logic
     func handleTap(at screenPoint: CGPoint, in view: ARSCNView) {
         guard arSessionState == .running else { return }
+        guard currentRoomId != nil else {
+            errorMessage = "Please select a room first"
+            showingRoomSelector = true
+            return
+        }
         
-        // Perform raycast to find floor intersection
         guard let raycastResult = performRaycast(from: screenPoint, in: view) else {
             errorMessage = "Could not find floor surface. Try pointing at the floor."
             return
@@ -114,11 +184,12 @@ class BuildMapViewModel: NSObject, ObservableObject {
             startBeaconPlacement(at: worldPosition)
         case .doorway:
             handleDoorwayPlacement(at: worldPosition)
+        case .waypoint:
+            startWaypointPlacement(at: worldPosition)
         }
     }
     
     private func performRaycast(from screenPoint: CGPoint, in view: ARSCNView) -> ARRaycastResult? {
-        // First try to hit existing planes
         let raycastQuery = view.raycastQuery(from: screenPoint, allowing: .existingPlaneGeometry, alignment: .horizontal)
         if let query = raycastQuery {
             let results = arSession.raycast(query)
@@ -127,7 +198,6 @@ class BuildMapViewModel: NSObject, ObservableObject {
             }
         }
         
-        // Fallback to estimated plane
         let estimatedQuery = view.raycastQuery(from: screenPoint, allowing: .estimatedPlane, alignment: .horizontal)
         if let query = estimatedQuery {
             let results = arSession.raycast(query)
@@ -141,163 +211,184 @@ class BuildMapViewModel: NSObject, ObservableObject {
     private func startBeaconPlacement(at position: simd_float3) {
         pendingBeaconPosition = position
         tempItemName = ""
+        isObstacleBeacon = false
         showingNameDialog = true
     }
     
     func confirmBeaconPlacement() {
         guard let position = pendingBeaconPosition,
+              let roomId = currentRoomId,
               !tempItemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Please enter a name for the beacon"
             return
         }
         
+        let physicalProps: PhysicalProperties? = isObstacleBeacon ? PhysicalProperties(
+            isObstacle: true,
+            boundingBox: BoundingBox(width: obstacleWidth, depth: obstacleDepth, height: obstacleHeight),
+            avoidanceRadius: obstacleWidth + 0.2,
+            canRouteAround: true,
+            obstacleType: .furniture
+        ) : nil
+        
         let beacon = Beacon(
             name: tempItemName.trimmingCharacters(in: .whitespacesAndNewlines),
             position: position,
-            category: selectedBeaconCategory
+            category: selectedBeaconCategory,
+            roomId: roomId,
+            description: nil,
+            audioLandmark: nil,
+            isAccessible: true,
+            accessibilityNotes: nil,
+            physicalProperties: physicalProps
         )
         
-        addBeacon(beacon)
-        
-        // Reset state
-        pendingBeaconPosition = nil
-        tempItemName = ""
-        showingNameDialog = false
-    }
-    
-    private func addBeacon(_ beacon: Beacon) {
         var updatedBeacons = currentMap.beacons
         updatedBeacons.append(beacon)
         currentMap = currentMap.updated(beacons: updatedBeacons)
         
-        // Notify about beacon addition (console logging)
-        print("📍 BEACON ADDED:")
-        print("   Name: \(beacon.name)")
-        print("   Coordinates: x=\(beacon.position.x), y=\(beacon.position.y), z=\(beacon.position.z)")
-        print("   Category: \(beacon.category.rawValue)")
+        print("🎯 BEACON: \(beacon.name) in \(currentRoom?.name ?? "?")")
         
-        // Send notification (if JSONMapManager is set up to listen)
-        NotificationCenter.default.post(
-            name: NSNotification.Name("BeaconAdded"),
-            object: nil,
-            userInfo: [
-                "name": beacon.name,
-                "coordinates": [
-                    "x": Double(beacon.position.x),
-                    "y": Double(beacon.position.y),
-                    "z": Double(beacon.position.z)
-                ],
-                "category": beacon.category.rawValue
-            ]
-        )
-    }
-    
-    // MARK: - Doorway Placement
-    private func handleDoorwayPlacement(at position: simd_float3) {
-        if !isPlacingDoorway {
-            // Start doorway placement - first point
-            firstDoorwayPoint = position
-            pendingDoorwayStartPosition = position
-            isPlacingDoorway = true
-        } else {
-            // Complete doorway placement - second point
-            guard let startPoint = firstDoorwayPoint else { return }
-            startDoorwayPlacement(startPoint: startPoint, endPoint: position)
-        }
-    }
-    
-    private func startDoorwayPlacement(startPoint: simd_float3, endPoint: simd_float3) {
-        // Validate minimum doorway width
-        let width = simd_distance(startPoint, endPoint)
-        guard width >= 0.3 else { // Minimum 30cm width
-            errorMessage = "Doorway too narrow. Minimum width is 30cm."
-            cancelDoorwayPlacement()
-            return
-        }
-        
-        guard width <= 5.0 else { // Maximum 5m width
-            errorMessage = "Doorway too wide. Maximum width is 5m."
-            cancelDoorwayPlacement()
-            return
-        }
-        
-        pendingDoorwayStartPosition = startPoint
-        pendingBeaconPosition = endPoint // Reuse for end position
+        pendingBeaconPosition = nil
         tempItemName = ""
-        showingNameDialog = true
+        isObstacleBeacon = false
+        showingNameDialog = false
+    }
+    
+    // MARK: - Doorway Placement (FIXED)
+    private func handleDoorwayPlacement(at position: simd_float3) {
+        guard let roomId = currentRoomId else {
+            errorMessage = "Please select a room first"
+            showingRoomSelector = true
+            return
+        }
+        
+        pendingDoorwayPosition = position
+        pendingDoorwayFromRoom = roomId
+        
+        tempItemName = ""
+        doorwayWidth = 0.9
+        selectedDoorwayType = .hinged_right
+        selectedDoorAction = .push
+        selectedDoorActionFromOther = .pull
+        
+        showingDoorwayDetails = true
     }
     
     func confirmDoorwayPlacement() {
-        guard let startPoint = pendingDoorwayStartPosition,
-              let endPoint = pendingBeaconPosition,
+        guard pendingDoorwayPosition != nil,
+              pendingDoorwayFromRoom != nil,
               !tempItemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "Please enter a name for the doorway"
+            errorMessage = "Please enter doorway details"
+            return
+        }
+        
+        isCompletingDoorway = true
+        showingRoomSelector = true
+    }
+    
+    func completeDoorwayWithDestinationRoom(toRoom: String) {
+        guard let position = pendingDoorwayPosition,
+              let fromRoom = pendingDoorwayFromRoom,
+              fromRoom != toRoom else {
+            errorMessage = "Please select a different room for the destination"
+            isCompletingDoorway = false
             return
         }
         
         let doorway = Doorway(
             name: tempItemName.trimmingCharacters(in: .whitespacesAndNewlines),
-            startPoint: startPoint,
-            endPoint: endPoint,
-            doorwayType: selectedDoorwayType
+            position: position,
+            width: doorwayWidth,
+            height: 2.1,
+            connectsRooms: ConnectedRooms(roomA: fromRoom, roomB: toRoom),
+            doorType: selectedDoorwayType,
+            doorActions: DoorActions(
+                fromRoomA: selectedDoorAction,
+                fromRoomB: selectedDoorActionFromOther
+            ),
+            isAccessible: true,
+            description: nil,
+            audioLandmark: nil
         )
         
-        addDoorway(doorway)
-        
-        // Reset state
-        cancelDoorwayPlacement()
-        pendingBeaconPosition = nil
-        tempItemName = ""
-        showingNameDialog = false
-    }
-    
-    private func addDoorway(_ doorway: Doorway) {
         var updatedDoorways = currentMap.doorways
         updatedDoorways.append(doorway)
         currentMap = currentMap.updated(doorways: updatedDoorways)
         
-        // Notify about doorway addition (console logging)
-        let centerPoint = simd_float3(
-            (doorway.startPoint.x + doorway.endPoint.x) / 2,
-            (doorway.startPoint.y + doorway.endPoint.y) / 2,
-            (doorway.startPoint.z + doorway.endPoint.z) / 2
+        let fromRoomName = currentMap.room(withId: fromRoom)?.name ?? "?"
+        let toRoomName = currentMap.room(withId: toRoom)?.name ?? "?"
+        print("🚪 DOORWAY: \(doorway.name)")
+        print("   Connects: \(fromRoomName) ↔ \(toRoomName)")
+        print("   From \(fromRoomName): \(selectedDoorAction.rawValue)")
+        print("   From \(toRoomName): \(selectedDoorActionFromOther.rawValue)")
+        
+        cancelDoorwayPlacement()
+        tempItemName = ""
+        showingDoorwayDetails = false
+        isCompletingDoorway = false
+    }
+    
+    // MARK: - Helper: Quick Door Action Setup (FIXED)
+    func setDoorAsHinged(pushFromCurrent: Bool) {
+        if pushFromCurrent {
+            selectedDoorAction = .push
+            selectedDoorActionFromOther = .pull
+        } else {
+            selectedDoorAction = .pull
+            selectedDoorActionFromOther = .push
+        }
+    }
+
+    func setDoorAsSwinging() {
+        selectedDoorAction = .push
+        selectedDoorActionFromOther = .push
+    }
+
+    func setDoorAsAutomatic() {
+        selectedDoorAction = .automatic
+        selectedDoorActionFromOther = .automatic
+    }
+
+    func setDoorAsOpen() {
+        selectedDoorAction = .walkThrough
+        selectedDoorActionFromOther = .walkThrough
+    }
+    
+    // MARK: - Waypoint Placement
+    private func startWaypointPlacement(at position: simd_float3) {
+        pendingBeaconPosition = position
+        tempItemName = ""
+        showingNameDialog = true
+    }
+    
+    func confirmWaypointPlacement() {
+        guard let position = pendingBeaconPosition,
+              let roomId = currentRoomId,
+              !tempItemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Please enter a name for the waypoint"
+            return
+        }
+        
+        let waypoint = Waypoint(
+            name: tempItemName.trimmingCharacters(in: .whitespacesAndNewlines),
+            coordinates: position,
+            roomId: roomId,
+            waypointType: .navigation,
+            isAccessible: true,
+            description: nil,
+            audioLandmark: nil
         )
         
-        print("🚪 DOORWAY ADDED:")
-        print("   Name: \(doorway.name)")
-        print("   From: (\(doorway.startPoint.x), \(doorway.startPoint.y), \(doorway.startPoint.z))")
-        print("   To: (\(doorway.endPoint.x), \(doorway.endPoint.y), \(doorway.endPoint.z))")
-        print("   Center: (\(centerPoint.x), \(centerPoint.y), \(centerPoint.z))")
-        print("   Width: \(simd_distance(doorway.startPoint, doorway.endPoint))m")
-        print("   Type: \(doorway.doorwayType.rawValue)")
+        var updatedWaypoints = currentMap.waypoints
+        updatedWaypoints.append(waypoint)
+        currentMap = currentMap.updated(waypoints: updatedWaypoints)
         
-        // Send notification (if JSONMapManager is set up to listen)
-        NotificationCenter.default.post(
-            name: NSNotification.Name("DoorwayAdded"),
-            object: nil,
-            userInfo: [
-                "name": doorway.name,
-                "fromRoom": "Room A", // You might want to implement room detection logic
-                "toRoom": "Room B",   // You might want to implement room detection logic
-                "coordinates": [
-                    "x": Double(centerPoint.x),
-                    "y": Double(centerPoint.y),
-                    "z": Double(centerPoint.z)
-                ],
-                "startPoint": [
-                    "x": Double(doorway.startPoint.x),
-                    "y": Double(doorway.startPoint.y),
-                    "z": Double(doorway.startPoint.z)
-                ],
-                "endPoint": [
-                    "x": Double(doorway.endPoint.x),
-                    "y": Double(doorway.endPoint.y),
-                    "z": Double(doorway.endPoint.z)
-                ],
-                "doorwayType": doorway.doorwayType.rawValue,
-                "width": Double(simd_distance(doorway.startPoint, doorway.endPoint))
-            ]
-        )
+        print("📍 WAYPOINT: \(waypoint.name) in \(currentRoom?.name ?? "?")")
+        
+        pendingBeaconPosition = nil
+        tempItemName = ""
+        showingNameDialog = false
     }
     
     // MARK: - Item Management
@@ -313,112 +404,52 @@ class BuildMapViewModel: NSObject, ObservableObject {
     
     func cancelPlacement() {
         pendingBeaconPosition = nil
-        pendingDoorwayStartPosition = nil
+        pendingDoorwayPosition = nil
         tempItemName = ""
         showingNameDialog = false
+        showingDoorwayDetails = false
+        isCompletingDoorway = false
         cancelDoorwayPlacement()
     }
     
     // MARK: - Map Management
     func updateMapName(_ name: String) {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        
         currentMap = IndoorMap(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             description: currentMap.description,
+            rooms: currentMap.rooms,
             beacons: currentMap.beacons,
-            doorways: currentMap.doorways
+            doorways: currentMap.doorways,
+            waypoints: currentMap.waypoints
         )
     }
     
     func clearMap() {
         currentMap = IndoorMap(name: currentMap.name)
         cancelDoorwayPlacement()
-        
+        currentRoomId = nil
         print("🧹 Cleared map data")
     }
     
-    // MARK: - Save/Complete Map Function
     func saveMap() {
-        let mapData = generateMapData()
+        let mapData = currentMap.toNewJSONFormat()
         let mapName = currentMap.name.isEmpty ? "Map \(Date().formatted(.dateTime.day().month().year().hour().minute()))" : currentMap.name
         
-        print("💾 MANUAL MAP SAVE:")
+        print("💾 SAVING MAP:")
         print("   Name: \(mapName)")
+        print("   Rooms: \(currentMap.rooms.count)")
         print("   Beacons: \(currentMap.beacons.count)")
         print("   Doorways: \(currentMap.doorways.count)")
+        print("   Waypoints: \(currentMap.waypoints.count)")
         
-        // Create JSONMap directly and save using singleton
-        let jsonMap = JSONMap(name: mapName, jsonData: mapData, description: "Saved from AR mapping session")
-        
-        // Use singleton to add map
+        let jsonMap = JSONMap(name: mapName, jsonData: mapData, description: "Simplified navigation map")
         SimpleJSONMapManager.shared.addMap(jsonMap)
-        
-        // FIXED: Clear the current session after saving to remove the "Save as Map" button
         SimpleJSONMapManager.shared.resetCurrentSession()
         
-        // Also send notification for consistency
-        NotificationCenter.default.post(
-            name: NSNotification.Name("MapCompleted"),
-            object: nil,
-            userInfo: [
-                "mapName": mapName,
-                "mapData": mapData
-            ]
-        )
-        
-        print("✅ Map saved successfully and current session cleared!")
+        print("✅ Map saved successfully!")
     }
     
-    // MARK: - Generate Map Data Function
-    private func generateMapData() -> [String: Any] {
-        let beaconsData = currentMap.beacons.map { beacon in
-            return [
-                "id": beacon.id.uuidString,
-                "name": beacon.name,
-                "category": beacon.category.rawValue,
-                "position": [
-                    "x": Double(beacon.position.x),
-                    "y": Double(beacon.position.y),
-                    "z": Double(beacon.position.z)
-                ]
-            ] as [String: Any]
-        }
-        
-        let doorwaysData = currentMap.doorways.map { doorway in
-            return [
-                "id": doorway.id.uuidString,
-                "name": doorway.name,
-                "doorwayType": doorway.doorwayType.rawValue,
-                "startPoint": [
-                    "x": Double(doorway.startPoint.x),
-                    "y": Double(doorway.startPoint.y),
-                    "z": Double(doorway.startPoint.z)
-                ],
-                "endPoint": [
-                    "x": Double(doorway.endPoint.x),
-                    "y": Double(doorway.endPoint.y),
-                    "z": Double(doorway.endPoint.z)
-                ],
-                "width": Double(simd_distance(doorway.startPoint, doorway.endPoint))
-            ] as [String: Any]
-        }
-        
-        return [
-            "mapName": currentMap.name,
-            "description": currentMap.description ?? "",
-            "beacons": beaconsData,
-            "doorways": doorwaysData,
-            "metadata": [
-                "createdDate": Date().timeIntervalSince1970,
-                "version": "1.0",
-                "totalBeacons": currentMap.beacons.count,
-                "totalDoorways": currentMap.doorways.count
-            ]
-        ]
-    }
-    
-    // MARK: - Error Handling
     func clearError() {
         errorMessage = nil
     }
@@ -428,11 +459,13 @@ class BuildMapViewModel: NSObject, ObservableObject {
 enum PlacementMode: String, CaseIterable {
     case beacon = "beacon"
     case doorway = "doorway"
+    case waypoint = "waypoint"
     
     var displayName: String {
         switch self {
         case .beacon: return "Beacon"
         case .doorway: return "Doorway"
+        case .waypoint: return "Waypoint"
         }
     }
     
@@ -440,16 +473,14 @@ enum PlacementMode: String, CaseIterable {
         switch self {
         case .beacon: return "flag.fill"
         case .doorway: return "rectangle.portrait.and.arrow.right"
+        case .waypoint: return "mappin.circle.fill"
         }
     }
 }
 
 // MARK: - AR Session State
 enum ARSessionState: Equatable {
-    case notStarted
-    case starting
-    case running
-    case paused
+    case notStarted, starting, running, paused
     case failed(String)
     
     var displayName: String {
@@ -464,10 +495,8 @@ enum ARSessionState: Equatable {
     
     static func == (lhs: ARSessionState, rhs: ARSessionState) -> Bool {
         switch (lhs, rhs) {
-        case (.notStarted, .notStarted),
-             (.starting, .starting),
-             (.running, .running),
-             (.paused, .paused):
+        case (.notStarted, .notStarted), (.starting, .starting),
+             (.running, .running), (.paused, .paused):
             return true
         case (.failed(let lhsError), .failed(let rhsError)):
             return lhsError == rhsError
@@ -480,7 +509,6 @@ enum ARSessionState: Equatable {
 // MARK: - ARSessionDelegate
 extension BuildMapViewModel: ARSessionDelegate {
     nonisolated func session(_ session: ARSession, didUpdate frame: ARFrame) {
-        // Update session state
         Task { @MainActor in
             if self.arSessionState != .running && session.currentFrame != nil {
                 self.arSessionState = .running
@@ -489,11 +517,8 @@ extension BuildMapViewModel: ARSessionDelegate {
     }
     
     nonisolated func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-        // Handle plane detection for floor calibration
         for anchor in anchors {
-            if let planeAnchor = anchor as? ARPlaneAnchor,
-               planeAnchor.alignment == .horizontal {
-                // Set floor height reference from first horizontal plane
+            if let planeAnchor = anchor as? ARPlaneAnchor, planeAnchor.alignment == .horizontal {
                 Task { @MainActor in
                     if self.floorHeightOffset == 0.0 {
                         self.floorHeightOffset = planeAnchor.transform.translation.y
@@ -523,7 +548,6 @@ extension BuildMapViewModel: ARSessionDelegate {
     }
 }
 
-// MARK: - Helper Extensions
 extension matrix_float4x4 {
     var translation: simd_float3 {
         return simd_float3(columns.3.x, columns.3.y, columns.3.z)
