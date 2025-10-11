@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		8F4679602E7FB607009D770A /* ARKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F46795F2E7FB607009D770A /* ARKit.framework */; };
 		8F4679622E7FB60D009D770A /* SceneKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F4679612E7FB60D009D770A /* SceneKit.framework */; };
+		8F9A97F42E977B6C000E88F1 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F9A97F32E977B6C000E88F1 /* AVFoundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,11 +35,25 @@
 		8F46790B2E7FB3E5009D770A /* GuideLight v3UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GuideLight v3UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F46795F2E7FB607009D770A /* ARKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ARKit.framework; path = System/Library/Frameworks/ARKit.framework; sourceTree = SDKROOT; };
 		8F4679612E7FB60D009D770A /* SceneKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SceneKit.framework; path = System/Library/Frameworks/SceneKit.framework; sourceTree = SDKROOT; };
+		8F9A97F32E977B6C000E88F1 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8F9A97FC2E9849A4000E88F1 /* Exceptions for "GuideLight v3" folder in "GuideLight v3" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Navigation/Views/PathNavigationView.swift.backup,
+			);
+			target = 8F4678F32E7FB3E4009D770A /* GuideLight v3 */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8F4678F62E7FB3E4009D770A /* GuideLight v3 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8F9A97FC2E9849A4000E88F1 /* Exceptions for "GuideLight v3" folder in "GuideLight v3" target */,
+			);
 			path = "GuideLight v3";
 			sourceTree = "<group>";
 		};
@@ -61,6 +76,7 @@
 			files = (
 				8F4679622E7FB60D009D770A /* SceneKit.framework in Frameworks */,
 				8F4679602E7FB607009D770A /* ARKit.framework in Frameworks */,
+				8F9A97F42E977B6C000E88F1 /* AVFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,6 +121,7 @@
 		8F46795E2E7FB607009D770A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				8F9A97F32E977B6C000E88F1 /* AVFoundation.framework */,
 				8F4679612E7FB60D009D770A /* SceneKit.framework */,
 				8F46795F2E7FB607009D770A /* ARKit.framework */,
 			);

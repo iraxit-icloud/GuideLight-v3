@@ -11,6 +11,7 @@ enum HubDestination: String, Identifiable {
 
 struct ContentView: View {
     @State private var pushed: HubDestination? = nil
+    @State private var showingPathNavigation = false
     @AppStorage("voiceFirstEnabled") private var voiceFirstEnabled: Bool = UIAccessibility.isVoiceOverRunning
 
     // Speech & haptics
@@ -48,7 +49,10 @@ struct ContentView: View {
                     .padding(.top, 24)
 
                     // MARK: Primary CTA – Pathfinder
-                    NavigationLink(destination: PathfinderView()) {
+                    Button {
+                        select(.navigation)
+                        showingPathNavigation = true
+                    } label: {
                         HStack(spacing: 14) {
                             AppIcon(name: "NavHero")
                                 .foregroundStyle(.white)
@@ -69,9 +73,6 @@ struct ContentView: View {
                     .padding(.horizontal, 28)
                     .accessibilityLabel("Pathfinder")
                     .accessibilityHint("Open indoor navigation")
-                    .simultaneousGesture(TapGesture().onEnded {
-                        select(.navigation)
-                    })
 
                     // MARK: Secondary CTA – Read Mail (Temporarily Disabled)
                     Button {
@@ -130,17 +131,19 @@ struct ContentView: View {
                     let dy = value.translation.height
                     if abs(dx) > abs(dy) {
                         if dx > swipeThreshold {
-                            // Navigate to Pathfinder
+                            showingPathNavigation = true
                         }
-                        // Mail reader temporarily disabled
                     } else if dy < -swipeThreshold {
                         // Navigate to Settings
                     }
                 }
             )
             .navigationBarHidden(true)
+            .fullScreenCover(isPresented: $showingPathNavigation) {
+                PathNavigationView()
+            }
         }
-        .navigationViewStyle(StackNavigationViewStyle()) // Force stack style on all devices
+        .navigationViewStyle(StackNavigationViewStyle())
         .onAppear {
             hapticLight.prepare()
             hapticHeavy.prepare()
@@ -168,31 +171,6 @@ struct ContentView: View {
         utterance.voice = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
         speech.speak(utterance)
-    }
-}
-
-// MARK: - Destination Views
-struct PathfinderView: View {
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "location.circle")
-                .font(.system(size: 64))
-                .foregroundColor(.blue)
-            
-            Text("Pathfinder Navigation")
-                .font(.title.weight(.semibold))
-            
-            Text("Indoor navigation feature will use maps created with the BuildMap tool.")
-                .font(.body)
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-                .padding(.horizontal)
-            
-            NavigationLink("Go to Settings", destination: SettingsView())
-                .buttonStyle(.borderedProminent)
-        }
-        .navigationTitle("Pathfinder")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

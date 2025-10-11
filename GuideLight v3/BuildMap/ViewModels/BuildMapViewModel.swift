@@ -4,7 +4,7 @@ import SceneKit
 import Combine
 import simd
 
-// MARK: - Build Map View Model (FIXED)
+// MARK: - Build Map View Model (FIXED WITH ARWORLDMAP SUPPORT)
 @MainActor
 class BuildMapViewModel: NSObject, ObservableObject {
     
@@ -14,7 +14,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
     @Published var placementMode: PlacementMode = .beacon
     @Published var currentMap: IndoorMap
     @Published var selectedBeaconCategory: BeaconCategory = .destination
-    @Published var selectedDoorwayType: DoorwayType = .hinged_right  // FIXED: Use actual enum case
+    @Published var selectedDoorwayType: DoorwayType = .hinged_right
     @Published var showingNameDialog = false
     @Published var tempItemName = ""
     @Published var errorMessage: String?
@@ -40,9 +40,13 @@ class BuildMapViewModel: NSObject, ObservableObject {
     @Published var showingDoorwayDetails = false
     @Published var isCompletingDoorway = false
     
-    // FIXED: Door action properties
+    // Door action properties
     @Published var selectedDoorAction: DoorAction = .push
     @Published var selectedDoorActionFromOther: DoorAction = .pull
+    
+    // NEW: Saving state
+    @Published var isSavingMap = false
+    @Published var savingProgress: String = ""
     
     // MARK: - Private Properties
     private var arSession = ARSession()
@@ -255,7 +259,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
         showingNameDialog = false
     }
     
-    // MARK: - Doorway Placement (FIXED)
+    // MARK: - Doorway Placement
     private func handleDoorwayPlacement(at position: simd_float3) {
         guard let roomId = currentRoomId else {
             errorMessage = "Please select a room first"
@@ -329,7 +333,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
         isCompletingDoorway = false
     }
     
-    // MARK: - Helper: Quick Door Action Setup (FIXED)
+    // MARK: - Helper: Quick Door Action Setup
     func setDoorAsHinged(pushFromCurrent: Bool) {
         if pushFromCurrent {
             selectedDoorAction = .push
@@ -432,22 +436,110 @@ class BuildMapViewModel: NSObject, ObservableObject {
         print("🧹 Cleared map data")
     }
     
-    func saveMap() {
+    // MARK: - FIXED: Save Map with ARWorldMap Support
+    func saveMap(completion: ((Bool) -> Void)? = nil) {
         let mapData = currentMap.toNewJSONFormat()
         let mapName = currentMap.name.isEmpty ? "Map \(Date().formatted(.dateTime.day().month().year().hour().minute()))" : currentMap.name
         
-        print("💾 SAVING MAP:")
+        print("💾 SAVING MAP WITH ARWORLDMAP:")
         print("   Name: \(mapName)")
         print("   Rooms: \(currentMap.rooms.count)")
         print("   Beacons: \(currentMap.beacons.count)")
         print("   Doorways: \(currentMap.doorways.count)")
         print("   Waypoints: \(currentMap.waypoints.count)")
         
-        let jsonMap = JSONMap(name: mapName, jsonData: mapData, description: "Simplified navigation map")
+        // Set saving state
+        isSavingMap = true
+        savingProgress = "Capturing ARWorldMap..."
+        
+        // Capture ARWorldMap from the session
+        SimpleJSONMapManager.shared.captureWorldMap(from: arSession) { [weak self] captureResult in
+            guard let self = self else {
+                completion?(false)
+                return
+            }
+            
+            Task { @MainActor in
+                switch captureResult {
+                case .success(let worldMap):
+                    print("✅ ARWorldMap captured successfully")
+                    print("   - Anchors: \(worldMap.anchors.count)")
+                    print("   - Feature points: \(worldMap.rawFeaturePoints.points.count)")
+                    
+                    self.savingProgress = "Saving ARWorldMap to file..."
+                    
+                    // Save ARWorldMap to file
+                    let fileName = "worldmap_\(UUID().uuidString).arworldmap"
+                    SimpleJSONMapManager.shared.saveARWorldMapToFile(worldMap: worldMap, fileName: fileName) { [weak self] saveResult in
+                        guard let self = self else {
+                            completion?(false)
+                            return
+                        }
+                        
+                        Task { @MainActor in
+                            switch saveResult {
+                            case .success(let fileURL):
+                                print("✅ ARWorldMap saved to file: \(fileURL.lastPathComponent)")
+                                
+                                self.savingProgress = "Creating map..."
+                                
+                                // Create JSONMap with ARWorldMap reference
+                                let jsonMap = JSONMap(
+                                    name: mapName,
+                                    jsonData: mapData,
+                                    description: "Indoor map with ARWorldMap support",
+                                    arWorldMapFileName: fileName
+                                )
+                                
+                                SimpleJSONMapManager.shared.addMap(jsonMap)
+                                SimpleJSONMapManager.shared.resetCurrentSession()
+                                
+                                print("✅ Map saved successfully with ARWorldMap!")
+                                
+                                self.isSavingMap = false
+                                self.savingProgress = ""
+                                completion?(true)
+                                
+                            case .failure(let error):
+                                print("⚠️ Failed to save ARWorldMap file: \(error)")
+                                print("   Falling back to save without ARWorldMap...")
+                                
+                                // Fallback: Save without ARWorldMap
+                                self.saveMapWithoutARWorldMap(mapName: mapName, mapData: mapData)
+                                completion?(false)
+                            }
+                        }
+                    }
+                    
+                case .failure(let error):
+                    print("⚠️ Failed to capture ARWorldMap: \(error)")
+                    print("   Falling back to save without ARWorldMap...")
+                    
+                    // Fallback: Save without ARWorldMap
+                    self.saveMapWithoutARWorldMap(mapName: mapName, mapData: mapData)
+                    completion?(false)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Fallback: Save without ARWorldMap
+    private func saveMapWithoutARWorldMap(mapName: String, mapData: [String: Any]) {
+        savingProgress = "Saving map (without ARWorldMap)..."
+        
+        let jsonMap = JSONMap(
+            name: mapName,
+            jsonData: mapData,
+            description: "Indoor map (no ARWorldMap)"
+        )
+        
         SimpleJSONMapManager.shared.addMap(jsonMap)
         SimpleJSONMapManager.shared.resetCurrentSession()
         
-        print("✅ Map saved successfully!")
+        print("💾 Map saved without ARWorldMap")
+        
+        isSavingMap = false
+        savingProgress = ""
     }
     
     func clearError() {

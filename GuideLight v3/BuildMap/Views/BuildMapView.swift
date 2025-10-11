@@ -2,7 +2,7 @@ import SwiftUI
 import ARKit
 import SceneKit
 
-// MARK: - Build Map View (FIXED)
+// MARK: - Build Map View (FIXED WITH ARWORLDMAP SUPPORT)
 struct BuildMapView: View {
     @StateObject private var viewModel = BuildMapViewModel()
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +18,11 @@ struct BuildMapView: View {
                 } else {
                     arMappingView
                 }
+                
+                // NEW: Saving progress overlay
+                if viewModel.isSavingMap {
+                    savingProgressOverlay
+                }
             }
             .navigationTitle(viewModel.showingRoomSetup ? "Setup Rooms" : "Build Map")
             .navigationBarTitleDisplayMode(.inline)
@@ -25,6 +30,7 @@ struct BuildMapView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
+                        .disabled(viewModel.isSavingMap)
                 }
 
                 if !viewModel.showingRoomSetup {
@@ -37,7 +43,7 @@ struct BuildMapView: View {
                                 saveMapWithCurrentName()
                             }
                         }
-                        .disabled(viewModel.currentMap.beacons.isEmpty && viewModel.currentMap.doorways.isEmpty)
+                        .disabled(viewModel.currentMap.beacons.isEmpty && viewModel.currentMap.doorways.isEmpty || viewModel.isSavingMap)
                     }
                 }
             }
@@ -72,12 +78,45 @@ struct BuildMapView: View {
             Button("Continue Editing") {}
             Button("Done") { dismiss() }
         } message: {
-            Text("Your map '\(viewModel.currentMap.name)' has been saved!")
+            Text("Your map '\(viewModel.currentMap.name)' has been saved with ARWorldMap support!")
         }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
             Button("OK") { viewModel.clearError() }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+    }
+    
+    // MARK: - NEW: Saving Progress Overlay
+    private var savingProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(1.5)
+                
+                Text("Saving Map")
+                    .font(.title2.weight(.bold))
+                    .foregroundColor(.white)
+                
+                if !viewModel.savingProgress.isEmpty {
+                    Text(viewModel.savingProgress)
+                        .font(.body)
+                        .foregroundColor(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+                
+                Text("Please wait...")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .padding(40)
+            .background(Color.black.opacity(0.8))
+            .cornerRadius(20)
         }
     }
 
@@ -207,7 +246,7 @@ struct BuildMapView: View {
         }
     }
 
-    // MARK: - Doorway Details Sheet (FIXED)
+    // MARK: - Doorway Details Sheet
     private var doorwayDetailsSheet: some View {
         NavigationView {
             Form {
@@ -637,19 +676,24 @@ struct BuildMapView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    // MARK: - Helper Functions
+    // MARK: - Helper Functions (UPDATED)
     private func saveMapWithName(_ name: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return }
         viewModel.updateMapName(trimmedName)
-        viewModel.saveMap()
-        showingSaveConfirmation = true
-        mapNameInput = ""
+        
+        // Use the new save method with completion
+        viewModel.saveMap { success in
+            showingSaveConfirmation = true
+            mapNameInput = ""
+        }
     }
 
     private func saveMapWithCurrentName() {
-        viewModel.saveMap()
-        showingSaveConfirmation = true
+        // Use the new save method with completion
+        viewModel.saveMap { success in
+            showingSaveConfirmation = true
+        }
     }
 }
 
@@ -678,7 +722,7 @@ struct ARViewContainer: UIViewRepresentable {
     }
 }
 
-// MARK: - AR View Coordinator (FIXED)
+// MARK: - AR View Coordinator
 extension ARViewContainer {
     class Coordinator: NSObject, ARSCNViewDelegate {
         let viewModel: BuildMapViewModel
@@ -829,7 +873,6 @@ extension ARViewContainer {
             return node
         }
 
-        // FIXED: Use doorway.position instead of doorway.coordinates
         private func createDoorwayNode(for doorway: Doorway) -> SCNNode {
             let node = SCNNode()
             
@@ -865,7 +908,6 @@ extension ARViewContainer {
             textNode.scale = SCNVector3(0.002, 0.002, 0.002)
             node.addChildNode(textNode)
             
-            // FIXED: Use position property
             node.position = SCNVector3(doorway.position.x, doorway.position.y, doorway.position.z)
             return node
         }
