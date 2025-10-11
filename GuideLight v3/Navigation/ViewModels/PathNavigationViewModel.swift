@@ -102,7 +102,8 @@ class PathNavigationViewModel: NSObject, ObservableObject {
     func startARSession() {
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
-        configuration.worldAlignment = .gravityAndHeading // Important for compass
+        //configuration.worldAlignment = .gravityAndHeading // Important for compass
+        configuration.worldAlignment = .gravity // Important for compass
         arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         logger.log("AR Session started with gravity and heading alignment")
     }
@@ -202,7 +203,8 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
-        configuration.worldAlignment = .gravityAndHeading // Important!
+        //configuration.worldAlignment = .gravityAndHeading // Important!
+        configuration.worldAlignment = .gravity // Important!
         configuration.initialWorldMap = worldMap
         
         arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
@@ -419,6 +421,7 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         
         // Project to horizontal plane (X,Z) - Y is vertical, ignore it
         let cameraForward2D = simd_float2(cameraForward3D.x, cameraForward3D.z)
+        // FIXED: Use atan2(X, Z) for correct bearing (0° = forward/+Z, 90° = right/+X)
         let cameraHeading = atan2(cameraForward2D.x, cameraForward2D.y)
         
         // 3. Calculate bearing to target (horizontal X,Z plane)
@@ -426,7 +429,60 @@ class PathNavigationViewModel: NSObject, ObservableObject {
             targetNode.position.x - currentPosition.x,
             targetNode.position.z - currentPosition.z
         )
+        // FIXED: Use atan2(X, Z) for correct bearing
         let targetBearing = atan2(targetDirection2D.x, targetDirection2D.y)
+        
+        // ---------- DEBUG: Compare forward vs right camera headings ----------
+        let camT = cameraTransform
+
+        // Use distinct names for debugging to avoid conflicts
+        let debugForward3D = -simd_float3(camT.columns.2.x, camT.columns.2.y, camT.columns.2.z)
+        let debugRight3D   =  simd_float3(camT.columns.0.x, camT.columns.0.y, camT.columns.0.z)
+
+        // Project both to horizontal XZ plane
+        let forward2D = simd_float2(debugForward3D.x, debugForward3D.z)
+        let right2D   = simd_float2(debugRight3D.x,   debugRight3D.z)
+        let target2D  = targetDirection2D // already (dx, dz)
+
+        // Heading helper (0° = +Z forward, +90° = +X right)
+        func headingRad(from v: simd_float2) -> Float {
+            return atan2(v.x, v.y)
+        }
+
+        let headingForward = headingRad(from: forward2D)
+        let headingRight   = headingRad(from: right2D)
+        let headingTarget  = headingRad(from: target2D)
+
+        // Normalize helper (-π...+π)
+        func normalizeAngle(_ a: Float) -> Float {
+            var angle = a
+            while angle > .pi { angle -= 2 * .pi }
+            while angle < -.pi { angle += 2 * .pi }
+            return angle
+        }
+
+        // Relative angles (target - cameraHeading)
+        let relativeFromForward = normalizeAngle(headingTarget - headingForward)
+        let relativeFromRight   = normalizeAngle(headingTarget - headingRight)
+
+        // Convert to degrees for readability
+        let toDeg: (Float) -> Float = { $0 * 180 / .pi }
+        let camForwardDeg = toDeg(headingForward)
+        let camRightDeg   = toDeg(headingRight)
+        let targetDeg     = toDeg(headingTarget)
+        let relForwardDeg = toDeg(relativeFromForward)
+        let relRightDeg   = toDeg(relativeFromRight)
+
+        // Debug print
+        print("""
+        🧭 CAMERA HEADING DEBUG
+          Camera Forward Heading: \(String(format: "%.2f", camForwardDeg))°
+          Camera Right   Heading: \(String(format: "%.2f", camRightDeg))°
+          Target Bearing:         \(String(format: "%.2f", targetDeg))°
+          Rel (Target - Forward): \(String(format: "%.2f", relForwardDeg))°
+          Rel (Target - Right):   \(String(format: "%.2f", relRightDeg))°
+        """)
+
         
         // 4. Calculate relative angle (how much to rotate arrow)
         var relativeAngle = targetBearing - cameraHeading
@@ -435,8 +491,42 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         while relativeAngle > .pi { relativeAngle -= 2 * .pi }
         while relativeAngle < -.pi { relativeAngle += 2 * .pi }
         
+        // 🔍 DEBUG LOGGING
+        print(String(repeating: "=", count: 60))
+        print("🧭 COMPASS DEBUG")
+        print("Your Position: X=\(String(format: "%.2f", currentPosition.x)), Z=\(String(format: "%.2f", currentPosition.z))")
+        print("Target Position: X=\(String(format: "%.2f", targetNode.position.x)), Z=\(String(format: "%.2f", targetNode.position.z))")
+        print("Target Name: \(targetNode.name)")
+        print("")
+        print("Camera Forward 3D: X=\(String(format: "%.3f", cameraForward3D.x)), Y=\(String(format: "%.3f", cameraForward3D.y)), Z=\(String(format: "%.3f", cameraForward3D.z))")
+        print("Camera Forward 2D: X=\(String(format: "%.3f", cameraForward2D.x)), Z=\(String(format: "%.3f", cameraForward2D.y))")
+        print("Camera Heading: \(String(format: "%.1f", cameraHeading * 180 / .pi))°")
+        print("")
+        print("Target Direction 2D: X=\(String(format: "%.3f", targetDirection2D.x)), Z=\(String(format: "%.3f", targetDirection2D.y))")
+        print("Target Bearing: \(String(format: "%.1f", targetBearing * 180 / .pi))°")
+        print("")
+        print("Relative Angle: \(String(format: "%.1f", relativeAngle * 180 / .pi))°")
+        print("Alignment Threshold: ±30°")
+        print("Is Aligned: \(abs(relativeAngle * 180 / .pi) < 30)")
+        print("Arrow Rotation: \(String(format: "%.1f", arrowRotation))°")
+        print(String(repeating: "=", count: 60))
+        
         // Convert to degrees for UI rotation
         arrowRotation = Double(relativeAngle * 180 / .pi)
+        
+        // --- DEBUG: Print camera and target headings ---
+        let cameraHeadingDeg = cameraHeading * 180 / .pi
+        let targetBearingDeg = targetBearing * 180 / .pi
+        let relativeAngleDeg = relativeAngle * 180 / .pi
+
+        print("""
+        🧭 DEBUG:
+          Camera Heading: \(String(format: "%.2f", cameraHeadingDeg))°
+          Target Bearing: \(String(format: "%.2f", targetBearingDeg))°
+          Relative Angle: \(String(format: "%.2f", relativeAngleDeg))°
+          (Arrow Rotation: \(String(format: "%.2f", arrowRotation))°)
+        """)
+
         
         // 5. Check alignment (within threshold degrees)
         let alignmentThresholdRad = alignmentThreshold * .pi / 180
@@ -466,6 +556,8 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         // 9. Update compass direction
         let angle = currentPosition.angle(to: targetNode.position)
         currentDirection = CompassDirection.from(angle: angle)
+        
+
     }
     
     private func updateDistanceText(_ distance: Float) {
