@@ -1,730 +1,756 @@
 //
-//  PathNavigationView.swift (FIND MY STYLE)
-//  Main Navigation UI with Apple Find My Experience
-//  UPDATED: Shows red pulsating marker on NEXT waypoint
+//  PathNavigationView.swift
+//  Complete Drop-in Ready Version with Integrated Diagnostics
 //
 
 import SwiftUI
 import ARKit
-import SceneKit
+import RealityKit
 
-// MARK: - Enhanced Path Navigation View with Find My Style
 struct PathNavigationView: View {
     @StateObject private var viewModel = PathNavigationViewModel()
-    @Environment(\.dismiss) private var dismiss
-    @State private var showingDestinationPicker = false
-    @State private var showingSettings = false
-    @State private var pulseScale: CGFloat = 1.0
-    @AppStorage("showDebugOverlay") private var showDebugOverlay = false
+    @State private var showDestinationPicker = false
+    @State private var showDiagnostics = false
+    @Environment(\.dismiss) var dismiss
     
     var body: some View {
         ZStack {
-            // AR Camera View (Full Screen)
-            ARNavigationViewContainer(viewModel: viewModel)
-                .ignoresSafeArea()
+            // AR Camera View
+            NavigationARViewContainer(viewModel: viewModel)
+                .edgesIgnoringSafeArea(.all)
             
-            // Overlay UI
-            VStack {
-                // Top Bar
-                topBar
-                
-                Spacer()
-                
-                // Relocalization UI
-                if viewModel.navigationState == .loadingMap &&
-                   !viewModel.isRelocalized &&
-                   viewModel.relocalizationState != .notStarted {
-                    RelocalizationView(
-                        state: viewModel.relocalizationState,
-                        onRetry: { viewModel.loadSelectedMap() },
-                        onCancel: { dismiss() }
-                    )
-                    .transition(.opacity)
-                }
-                
-                // FIND MY STYLE COMPASS (Center of screen when navigating)
-                if viewModel.navigationState == .navigating {
-                    findMyCompass
-                        .transition(.scale.combined(with: .opacity))
+            // Main Navigation UI
+            VStack(spacing: 0) {
+                // Diagnostic Panel (toggleable)
+                if showDiagnostics {
+                    CoordinateDiagnosticView(viewModel: viewModel)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(10)
                 }
                 
                 Spacer()
                 
-                // Navigation Info Card (when navigating)
-                if viewModel.navigationState == .navigating {
-                    navigationInfoCard
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                
-                // Path calculated banner
-                if viewModel.navigationState == .pathCalculated {
-                    pathCalculatedBanner
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                
-                // Destination reached
-                if viewModel.showDestinationReached {
-                    destinationReachedBanner
-                        .transition(.scale.combined(with: .opacity))
-                }
-                
-                // Bottom Controls
-                bottomControls
-            }
-            .padding()
-            
-            // Debug Overlay
-            if showDebugOverlay {
-                DebugOverlay(viewModel: viewModel)
+                // Bottom Navigation Controls
+                bottomNavigationControls
             }
             
-            // Loading Overlay
-            if viewModel.navigationState == .loadingMap ||
-               viewModel.navigationState == .calculatingPath {
+            // Overlays
+            if viewModel.navigationState == .loadingMap {
                 loadingOverlay
             }
-        }
-        .navigationBarHidden(true)
-        .sheet(isPresented: $showingDestinationPicker) {
-            destinationPickerSheet
-        }
-        .sheet(isPresented: $showingSettings) {
-            navigationSettingsSheet
+            
+            if !viewModel.isRelocalized && viewModel.relocalizationState != .notStarted {
+                relocalizationOverlay
+            }
+            
+            if showDestinationPicker {
+                destinationPickerOverlay
+            }
+            
+            if viewModel.showDestinationReached {
+                destinationReachedOverlay
+            }
         }
         .onAppear {
             viewModel.startARSession()
             viewModel.loadSelectedMap()
-            startPulseAnimation()
         }
         .onDisappear {
             viewModel.pauseARSession()
         }
-        .alert("Error", isPresented: .constant(isError)) {
-            Button("OK") {
-                if case .error = viewModel.navigationState {
-                    dismiss()
-                }
-            }
-        } message: {
-            Text(errorMessage)
-        }
     }
     
-    // MARK: - FIND MY STYLE COMPASS (NEW!)
-    private var findMyCompass: some View {
-        ZStack {
-            // Background circle
-            Circle()
-                .fill(Color.black.opacity(0.4))
-                .frame(width: 220, height: 220)
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.3), lineWidth: 2)
-                )
-            
-            // Directional arrow/cone
-            DirectionalArrowShape()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            viewModel.directionColor.opacity(0.95),
-                            viewModel.directionColor.opacity(0.4)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: 70, height: 140)
-                .shadow(color: viewModel.directionColor.opacity(0.8), radius: 25)
-                .rotationEffect(.degrees(viewModel.arrowRotation))
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.arrowRotation)
-            
-            // Center pulsing dot (your position)
-            ZStack {
-                // Outer pulse ring
-                Circle()
-                    .stroke(Color.blue.opacity(0.6), lineWidth: 3)
-                    .frame(width: 30, height: 30)
-                    .scaleEffect(pulseScale)
-                    .opacity(2.5 - pulseScale)
-                
-                // Inner solid dot
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [.white, .blue],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: 12
-                        )
-                    )
-                    .frame(width: 24, height: 24)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white, lineWidth: 3)
-                    )
-            }
-            
-            // Distance text at top of compass
-            VStack {
-                Text(viewModel.distanceText)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 4)
-                
-                Text("to waypoint")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.8))
-                    .shadow(color: .black.opacity(0.5), radius: 2)
-            }
-            .offset(y: -140)
-            
-            // Alignment indicator
-            if viewModel.isAligned {
-                VStack {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.headline)
-                        Text("Keep Going")
-                            .font(.headline)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule()
-                            .fill(Color.green)
-                            .shadow(color: .green.opacity(0.6), radius: 8)
-                    )
-                }
-                .offset(y: 140)
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-    }
+    // MARK: - Bottom Navigation Controls
     
-    // MARK: - Top Bar
-    private var topBar: some View {
-        HStack {
-            // Back Button
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundColor(.white)
-                    .padding(8)
-                    .background(.black.opacity(0.3))
-                    .clipShape(Circle())
+    private var bottomNavigationControls: some View {
+        VStack(spacing: 0) {
+            // Navigation Info Card (when navigating)
+            if viewModel.navigationState == .navigating {
+                navigationInfoCard
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
-            // Relocalization Status
-            if viewModel.isRelocalized || viewModel.navigationState == .loadingMap {
-                CompactRelocalizationIndicator(mappingStatus: viewModel.worldMappingStatus)
-                    .transition(.opacity)
-            }
-            
-            Spacer()
-            
-            // Destination Button
-            if viewModel.navigationState == .mapLoaded ||
-               viewModel.navigationState == .selectingDestination ||
-               viewModel.navigationState == .navigating {
-                Button {
-                    showingDestinationPicker = true
-                } label: {
-                    HStack {
-                        Image(systemName: "mappin.circle.fill")
-                        Text(viewModel.selectedDestination?.name ?? "Select Destination")
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(.black.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                }
-            }
-            
-            Spacer()
-            
-            // Settings & Reset
-            HStack(spacing: 12) {
-                Button {
-                    showingSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                        .padding(8)
-                        .background(.black.opacity(0.3))
-                        .clipShape(Circle())
-                }
-                
-                if viewModel.navigationState == .navigating ||
-                   viewModel.navigationState == .pathCalculated {
-                    Button {
-                        viewModel.resetNavigation()
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise.circle.fill")
-                            .font(.title)
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(.black.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                }
-            }
+            // Control Panel
+            controlPanel
         }
     }
     
     // MARK: - Navigation Info Card
+    
     private var navigationInfoCard: some View {
         VStack(spacing: 12) {
-            if let nextPoint = viewModel.getNextTarget() {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Next Waypoint")
-                            .font(.caption)
-                            .foregroundColor(.white.opacity(0.7))
+            // Current Waypoint & Final Destination
+            if let currentTarget = viewModel.getNextTarget(),
+               let finalDestination = viewModel.getFinalDestination() {
+                VStack(spacing: 4) {
+                    // Show current waypoint we're heading to
+                    HStack {
+                        Image(systemName: "location.circle.fill")
+                            .foregroundColor(.orange)
                         
-                        Text(nextPoint.name)
-                            .font(.title3.weight(.bold))
-                            .foregroundColor(.white)
+                        Text("Next: \(currentTarget.name)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.orange)
+                        
+                        Spacer()
                     }
                     
-                    Spacer()
-                    
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 4) {
-                            Image(systemName: viewModel.currentDirection.icon)
-                                .font(.caption)
-                            Text(viewModel.currentDirection.rawValue)
-                                .font(.caption)
-                        }
-                        .foregroundColor(.white.opacity(0.7))
+                    // Show final destination
+                    HStack {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundColor(.blue)
+                        
+                        Text("Final: \(finalDestination.name)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        
+                        Spacer()
+                        
+                        Text("(\(viewModel.currentPathIndex + 1)/\(viewModel.currentPath?.path.count ?? 0))")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
                     }
+                }
+            }
+            
+            // Distance & Direction
+            HStack(spacing: 20) {
+                // Directional Arrow
+                ZStack {
+                    Circle()
+                        .fill(viewModel.directionColor.opacity(0.2))
+                        .frame(width: 80, height: 80)
+                    
+                    Circle()
+                        .stroke(viewModel.directionColor, lineWidth: 3)
+                        .frame(width: 80, height: 80)
+                    
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 36, weight: .bold))
+                        .foregroundColor(viewModel.directionColor)
+                        .rotationEffect(.degrees(viewModel.arrowRotation))
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.arrowRotation)
                 }
                 
-                if let stats = viewModel.statistics {
-                    Divider()
-                        .background(.white.opacity(0.3))
-                    
-                    HStack {
-                        StatItem(label: "Step", value: "\(viewModel.currentPathIndex + 1)/\(viewModel.currentPath?.path.count ?? 0)")
-                        Spacer()
-                        StatItem(label: "Progress", value: "\(Int(stats.progressPercentage))%")
-                        Spacer()
-                        StatItem(label: "ETA", value: stats.formattedETA())
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(.white.opacity(0.2), lineWidth: 1)
-                )
-        )
-        .shadow(color: .black.opacity(0.3), radius: 10)
-    }
-    
-    // MARK: - Path Calculated Banner
-    private var pathCalculatedBanner: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.green)
-            
-            Text("Route Ready")
-                .font(.title2.weight(.bold))
-                .foregroundColor(.white)
-            
-            if let path = viewModel.currentPath {
-                Text("\(path.path.count) waypoints • \(String(format: "%.0fm", path.totalDistance))")
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.9))
-            }
-            
-            Button {
-                viewModel.startNavigation()
-            } label: {
-                Text("Start Navigation")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(Color.blue)
-                    .clipShape(Capsule())
-            }
-            .padding(.top, 8)
-        }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.ultraThinMaterial)
-        )
-        .shadow(radius: 10)
-    }
-    
-    // MARK: - Destination Reached Banner
-    private var destinationReachedBanner: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "flag.checkered.circle.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.white)
-            
-            Text("You've Arrived!")
-                .font(.title.weight(.bold))
-                .foregroundColor(.white)
-            
-            if let destination = viewModel.selectedDestination {
-                Text(destination.name)
-                    .font(.title3)
-                    .foregroundColor(.white.opacity(0.9))
-            }
-            
-            if let stats = viewModel.statistics {
-                VStack(spacing: 4) {
-                    Text("Time: \(stats.formattedElapsedTime())")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.9))
-                    
-                    Text("Distance: \(String(format: "%.1fm", stats.totalDistance))")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.9))
-                }
-            }
-        }
-        .padding(30)
-        .background(
-            LinearGradient(
-                colors: [.green, .blue],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(radius: 15)
-    }
-    
-    // MARK: - Bottom Controls
-    private var bottomControls: some View {
-        VStack(spacing: 12) {
-            // Turn instruction (when navigating and not straight)
-            if viewModel.navigationState == .navigating && viewModel.turnInstruction != .straight {
-                HStack(spacing: 12) {
-                    Image(systemName: viewModel.turnInstruction.icon)
-                        .font(.title2)
-                        .foregroundColor(.yellow)
+                // Distance & Instructions
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(viewModel.distanceText)
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundColor(viewModel.directionColor)
                     
                     Text(viewModel.turnInstruction.description)
-                        .font(.headline)
+                        .font(.subheadline.weight(.medium))
                         .foregroundColor(.white)
+                    
+                    Text(viewModel.currentDirection.rawValue)
+                        .font(.caption)
+                        .foregroundColor(.gray)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(
-                    Capsule()
-                        .fill(.black.opacity(0.7))
-                )
+                
+                Spacer()
             }
             
-            // Calculate Path Button
-            if viewModel.navigationState == .selectingDestination {
-                Button {
-                    viewModel.calculatePath()
-                } label: {
-                    HStack {
-                        Image(systemName: "point.topleft.down.curvedto.point.bottomright.up.fill")
-                        Text("Calculate Route")
-                            .font(.headline)
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            
-            // Arrived button (when close to waypoint)
-            if viewModel.navigationState == .navigating &&
-               viewModel.distanceToNextPoint < 2.0 {
-                Button {
-                    // Mark current waypoint as reached
-                    if let currentPos = viewModel.getCurrentCameraPosition(),
-                       let target = viewModel.getNextTarget() {
-                        let distance = currentPos.distance(to: target.position)
-                        if distance < 2.0 {
-                            // This will trigger the waypoint reached logic
-                            viewModel.updateNavigation()
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text("I've Arrived")
-                            .font(.headline)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
-                    .background(
-                        Capsule()
-                            .fill(Color.green)
-                            .shadow(color: .green.opacity(0.5), radius: 10)
-                    )
+            // Alignment Indicator
+            if viewModel.isAligned {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    
+                    Text("Aligned with destination")
+                        .font(.caption)
+                        .foregroundColor(.green)
                 }
                 .transition(.scale.combined(with: .opacity))
             }
-        }
-    }
-    
-    // MARK: - Loading Overlay
-    private var loadingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.7)
-                .ignoresSafeArea()
             
-            VStack(spacing: 16) {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .scaleEffect(1.5)
+            // Statistics (if available)
+            if let stats = viewModel.statistics {
+                Divider()
+                    .background(Color.white.opacity(0.3))
+                    .padding(.vertical, 4)
                 
-                Text(loadingMessage)
-                    .font(.headline)
-                    .foregroundColor(.white)
-            }
-            .padding(40)
-            .background(.black.opacity(0.8))
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-        }
-    }
-    
-    private var loadingMessage: String {
-        switch viewModel.navigationState {
-        case .loadingMap: return "Loading Map..."
-        case .calculatingPath: return "Calculating Route..."
-        default: return "Loading..."
-        }
-    }
-    
-    // MARK: - Destination Picker Sheet
-    private var destinationPickerSheet: some View {
-        NavigationView {
-            List {
-                if viewModel.availableDestinations.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "map")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray)
-                        Text("No destinations available")
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-                } else {
-                    ForEach(viewModel.availableDestinations) { destination in
-                        Button {
-                            viewModel.selectDestination(destination)
-                            showingDestinationPicker = false
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(destination.name)
-                                        .font(.headline)
-                                        .foregroundColor(.primary)
-                                    
-                                    if case .beacon(let category) = destination.nodeType {
-                                        Text(category.capitalized)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    
-                                    if let currentPos = viewModel.getCurrentCameraPosition() {
-                                        let distance = currentPos.distance(to: destination.position)
-                                        Text(String(format: "%.1fm away", distance))
-                                            .font(.caption2)
-                                            .foregroundColor(.blue)
-                                    }
-                                }
-                                
-                                Spacer()
-                                
-                                if viewModel.selectedDestination?.id == destination.id {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
+                HStack(spacing: 20) {
+                    statItem(
+                        icon: "clock",
+                        label: "Time",
+                        value: stats.formattedElapsedTime()
+                    )
+                    
+                    statItem(
+                        icon: "gauge",
+                        label: "Speed",
+                        value: String(format: "%.1f m/s", stats.currentSpeed)
+                    )
+                    
+                    statItem(
+                        icon: "flag.checkered",
+                        label: "Progress",
+                        value: "\(stats.waypointsReached)/\(stats.pathLength)"
+                    )
                 }
-            }
-            .navigationTitle("Select Destination")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        showingDestinationPicker = false
-                    }
-                }
+                .font(.caption)
             }
         }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.black.opacity(0.85))
+                .shadow(color: viewModel.directionColor.opacity(0.3), radius: 10)
+        )
+        .padding(.horizontal)
     }
     
-    // MARK: - Settings Sheet
-    private var navigationSettingsSheet: some View {
-        NavigationView {
-            Form {
-                Section("Audio") {
-                    Toggle("Audio Guidance", isOn: $viewModel.enableAudioGuidance)
-                }
-                
-                Section("Haptics") {
-                    Toggle("Haptic Feedback", isOn: $viewModel.enableHapticFeedback)
-                }
-                
-                Section("Debug") {
-                    Toggle("Show Debug Overlay", isOn: $showDebugOverlay)
-                }
-                
-                Section("Performance") {
-                    HStack {
-                        Text("FPS")
-                        Spacer()
-                        Text(String(format: "%.0f", viewModel.currentFPS))
-                            .foregroundColor(viewModel.isPerformanceGood ? .green : .orange)
-                    }
-                }
-            }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        showingSettings = false
-                    }
-                }
-            }
-        }
-    }
-    
-    // MARK: - Animation
-    private func startPulseAnimation() {
-        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false)) {
-            pulseScale = 2.2
-        }
-    }
-    
-    // MARK: - Helper Properties
-    private var isError: Bool {
-        if case .error = viewModel.navigationState { return true }
-        return false
-    }
-    
-    private var errorMessage: String {
-        if case .error(let message) = viewModel.navigationState { return message }
-        return ""
-    }
-}
-
-// MARK: - Directional Arrow Shape (Cone/Pointer)
-struct DirectionalArrowShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        
-        let width = rect.width
-        let height = rect.height
-        
-        // Create a cone/arrow pointing up
-        path.move(to: CGPoint(x: width / 2, y: 0)) // Top point
-        path.addLine(to: CGPoint(x: width, y: height * 0.65)) // Right side
-        path.addLine(to: CGPoint(x: width / 2, y: height)) // Bottom center
-        path.addLine(to: CGPoint(x: 0, y: height * 0.65)) // Left side
-        path.closeSubpath()
-        
-        return path
-    }
-}
-
-// MARK: - Stat Item
-struct StatItem: View {
-    let label: String
-    let value: String
-    
-    var body: some View {
-        VStack(spacing: 2) {
+    private func statItem(icon: String, label: String, value: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+            
             Text(value)
-                .font(.caption.bold().monospacedDigit())
+                .font(.caption.weight(.bold))
                 .foregroundColor(.white)
             
             Text(label)
                 .font(.caption2)
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.gray)
         }
-    }
-}
-
-// MARK: - AR Navigation View Container (UPDATED)
-struct ARNavigationViewContainer: UIViewRepresentable {
-    let viewModel: PathNavigationViewModel
-    
-    func makeUIView(context: Context) -> ARSCNView {
-        let arView = ARSCNView()
-        arView.delegate = context.coordinator
-        arView.session = viewModel.session
-        arView.scene = SCNScene()
-        arView.automaticallyUpdatesLighting = true
-        
-        context.coordinator.visualizer = ARPathVisualizer(sceneView: arView)
-        
-        return arView
+        .frame(maxWidth: .infinity)
     }
     
-    func updateUIView(_ uiView: ARSCNView, context: Context) {
-        context.coordinator.updateVisualization(viewModel: viewModel)
-    }
+    // MARK: - Control Panel
     
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-    
-    class Coordinator: NSObject, ARSCNViewDelegate {
-        var visualizer: ARPathVisualizer?
-        
-        func updateVisualization(viewModel: PathNavigationViewModel) {
-            guard let visualizer = visualizer else { return }
+    private var controlPanel: some View {
+        VStack(spacing: 12) {
+            // Status Bar
+            statusBar
             
-            Task { @MainActor in
-                switch viewModel.navigationState {
-                case .navigating:
-                    // UPDATED: Show red marker on NEXT waypoint (not final destination)
-                    if let nextWaypoint = viewModel.getNextTarget() {
-                        visualizer.updateNextWaypointMarker(at: nextWaypoint.position)
-                    }
-                    
-                case .pathCalculated:
-                    // When path is calculated, show marker on first waypoint
-                    if let firstWaypoint = viewModel.getNextTarget() {
-                        visualizer.updateNextWaypointMarker(at: firstWaypoint.position)
-                    }
-                    visualizer.clearArrow()
-                    
-                default:
-                    visualizer.clearAll()
-                }
+            // Action Buttons
+            actionButtons
+            
+            // Diagnostic Toggle (during navigation or map loaded)
+            if viewModel.navigationState == .navigating ||
+               viewModel.navigationState == .mapLoaded ||
+               viewModel.navigationState == .pathCalculated {
+                diagnosticToggleButton
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.black.opacity(0.9))
+                .shadow(radius: 10)
+        )
+        .padding()
+    }
+    
+    // MARK: - Status Bar
+    
+    private var statusBar: some View {
+        HStack {
+            // Tracking Status
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 12, height: 12)
+                
+                Text(statusText)
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(.white)
+            }
+            
+            Spacer()
+            
+            // FPS Monitor (optional)
+            if viewModel.navigationState == .navigating {
+                Text("\(Int(viewModel.currentFPS)) FPS")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundColor(viewModel.isPerformanceGood ? .green : .orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.1))
+                    )
             }
         }
     }
+    
+    private var statusColor: Color {
+        if viewModel.isRelocalized {
+            return .green
+        } else if viewModel.relocalizationState == .scanning {
+            return .yellow
+        } else {
+            return .gray
+        }
+    }
+    
+    private var statusText: String {
+        if viewModel.isRelocalized {
+            return "Tracking"
+        } else {
+            switch viewModel.relocalizationState {
+            case .notStarted:
+                return "Starting..."
+            case .scanning:
+                return "Scanning environment..."
+            case .limited:
+                return "Limited tracking"
+            case .mapped:
+                return "Mapped"
+            case .failed:
+                return "Tracking lost"
+            }
+        }
+    }
+    
+    // MARK: - Action Buttons
+    
+    private var actionButtons: some View {
+        Group {
+            switch viewModel.navigationState {
+            case .idle, .loadingMap:
+                EmptyView()
+                
+            case .mapLoaded:
+                // Select Destination
+                Button {
+                    showDestinationPicker = true
+                } label: {
+                    Label("Select Destination", systemImage: "mappin.and.ellipse")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                
+            case .selectingDestination:
+                EmptyView()
+                
+            case .calculatingPath:
+                HStack {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    
+                    Text("Calculating path...")
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.gray.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                
+            case .pathCalculated:
+                VStack(spacing: 8) {
+                    // Path Info
+                    if let path = viewModel.currentPath {
+                        HStack {
+                            Label("\(path.path.count) waypoints", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            
+                            Spacer()
+                            
+                            Label(String(format: "%.1f meters", path.totalDistance), systemImage: "ruler")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    
+                    // Start Navigation Button
+                    Button {
+                        viewModel.startNavigation()
+                    } label: {
+                        Label("Start Navigation", systemImage: "location.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.green, Color.green.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .shadow(color: .green.opacity(0.3), radius: 8)
+                    }
+                }
+                
+            case .navigating:
+                HStack(spacing: 12) {
+                    // Stop Navigation
+                    Button {
+                        viewModel.resetNavigation()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    
+                    // Skip Waypoint (if close)
+                    if viewModel.distanceToNextPoint < 2.0 {
+                        Button {
+                            viewModel.updateNavigation()
+                        } label: {
+                            Image(systemName: "forward.fill")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(Color.orange)
+                                .clipShape(Circle())
+                        }
+                        .transition(.scale)
+                    }
+                }
+                
+            case .destinationReached:
+                Button {
+                    viewModel.resetNavigation()
+                } label: {
+                    Label("Done", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                
+            case .error(let message):
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.leading)
+                    }
+                    
+                    Button {
+                        viewModel.clearAll()
+                        viewModel.loadSelectedMap()
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                            .font(.subheadline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+        }
+        .animation(.spring(response: 0.3), value: viewModel.navigationState)
+    }
+    
+    // MARK: - Diagnostic Toggle Button
+    
+    private var diagnosticToggleButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                showDiagnostics.toggle()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: showDiagnostics ? "xmark.circle.fill" : "wrench.and.screwdriver.fill")
+                    .font(.caption)
+                
+                Text(showDiagnostics ? "Hide Diagnostics" : "Fix Navigation Issues")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .background(
+                Capsule()
+                    .fill(showDiagnostics ? Color.orange : Color.gray.opacity(0.6))
+                    .overlay(
+                        Capsule()
+                            .stroke(showDiagnostics ? Color.orange : Color.clear, lineWidth: 2)
+                    )
+            )
+        }
+    }
+    
+    // MARK: - Destination Picker Overlay
+    
+    private var destinationPickerOverlay: some View {
+        ZStack {
+            // Background Blur
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation {
+                        showDestinationPicker = false
+                    }
+                }
+            
+            // Picker Content
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Select Destination")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        
+                        Text("\(viewModel.availableDestinations.count) locations available")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    
+                    Spacer()
+                    
+                    Button {
+                        withAnimation {
+                            showDestinationPicker = false
+                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                
+                // Destination List
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(viewModel.availableDestinations) { destination in
+                            destinationRow(destination)
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .frame(maxWidth: 450, maxHeight: 600)
+            .background(Color.black.opacity(0.95))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .shadow(radius: 20)
+            .padding()
+        }
+        .transition(.opacity)
+    }
+    
+    private func destinationRow(_ destination: NavigationNode) -> some View {
+        Button {
+            withAnimation {
+                viewModel.selectDestination(destination)
+                viewModel.calculatePath()
+                showDestinationPicker = false
+            }
+        } label: {
+            HStack(spacing: 12) {
+                // Icon
+                iconForDestination(destination)
+                    .font(.title2)
+                    .foregroundColor(.blue)
+                    .frame(width: 40, height: 40)
+                    .background(
+                        Circle()
+                            .fill(Color.blue.opacity(0.2))
+                    )
+                
+                // Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(destination.name)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    
+                    if case .beacon(let category) = destination.nodeType {
+                        Text(category.capitalized)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    
+                    // Distance from current position
+                    if let currentPos = viewModel.getCurrentCameraPosition() {
+                        let distance = simd_distance(currentPos, destination.position)
+                        Text(String(format: "%.1f meters away", distance))
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.2))
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private func iconForDestination(_ destination: NavigationNode) -> Image {
+        if case .beacon(let category) = destination.nodeType {
+            switch category.lowercased() {
+            case "furniture":
+                return Image(systemName: "sofa")
+            case "landmark":
+                return Image(systemName: "mappin")
+            case "entrance", "door":
+                return Image(systemName: "door.left.hand.open")
+            default:
+                return Image(systemName: "mappin.circle.fill")
+            }
+        }
+        return Image(systemName: "mappin.circle.fill")
+    }
+    
+    // MARK: - Loading Overlay
+    
+    private var loadingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.8)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(1.5)
+                
+                Text("Loading Map...")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                
+                Text("Please wait")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            .padding(40)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.black.opacity(0.9))
+            )
+        }
+    }
+    
+    // MARK: - Relocalization Overlay
+    
+    private var relocalizationOverlay: some View {
+        RelocalizationProgressView(
+            mappingStatus: viewModel.worldMappingStatus,
+            onCancel: {
+                viewModel.clearAll()
+                dismiss()
+            }
+        )
+    }
+    
+    // MARK: - Destination Reached Overlay
+    
+    private var destinationReachedOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                // Success Animation
+                ZStack {
+                    Circle()
+                        .fill(Color.green.opacity(0.2))
+                        .frame(width: 120, height: 120)
+                    
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 80))
+                        .foregroundColor(.green)
+                }
+                
+                Text("Destination Reached!")
+                    .font(.title.bold())
+                    .foregroundColor(.white)
+                
+                if let destination = viewModel.getFinalDestination() {
+                    Text(destination.name)
+                        .font(.headline)
+                        .foregroundColor(.gray)
+                }
+                
+                // Statistics
+                if let stats = viewModel.statistics {
+                    VStack(spacing: 8) {
+                        statRow(icon: "clock", label: "Time", value: stats.formattedElapsedTime())
+                        statRow(icon: "ruler", label: "Distance", value: String(format: "%.1f m", stats.totalDistance))
+                        if stats.averageSpeed > 0 {
+                            statRow(icon: "gauge", label: "Avg Speed", value: String(format: "%.1f m/s", stats.averageSpeed))
+                        }
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.1))
+                    )
+                }
+                
+                // Done Button
+                Button {
+                    withAnimation {
+                        viewModel.showDestinationReached = false
+                        viewModel.resetNavigation()
+                    }
+                } label: {
+                    Text("Done")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .padding(.horizontal, 40)
+            }
+            .padding(40)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.black.opacity(0.95))
+            )
+            .padding()
+        }
+        .transition(.scale.combined(with: .opacity))
+    }
+    
+    private func statRow(icon: String, label: String, value: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundColor(.green)
+                .frame(width: 24)
+            
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.gray)
+            
+            Spacer()
+            
+            Text(value)
+                .font(.subheadline.bold())
+                .foregroundColor(.white)
+        }
+    }
 }
 
-#Preview {
-    PathNavigationView()
+// MARK: - Preview
+struct PathNavigationView_Previews: PreviewProvider {
+    static var previews: some View {
+        PathNavigationView()
+            .preferredColorScheme(.dark)
+    }
 }

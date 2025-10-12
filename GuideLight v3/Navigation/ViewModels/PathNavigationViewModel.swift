@@ -1,7 +1,6 @@
 //
-//  PathNavigationViewModel.swift (ENHANCED FOR FIND MY STYLE)
-//  Navigation State Management with Find My Experience
-//  FIXED: Now uses X,Z horizontal plane (ignoring Y vertical height)
+//  PathNavigationViewModel.swift
+//  FIXED VERSION with all missing types and enums
 //
 
 import Foundation
@@ -24,7 +23,37 @@ enum NavigationState: Equatable {
     case error(String)
 }
 
-// MARK: - Enhanced Path Navigation View Model
+// MARK: - Coordinate Transformation Mode
+enum CoordinateTransformMode: String, CaseIterable {
+    case none = "None (Original)"
+    case invertZ = "Invert Z"
+    case invertX = "Invert X"
+    case invertXZ = "Invert X & Z (180° rotation)"
+    case swapXZ = "Swap X ↔ Z"
+    case rotate90CW = "Rotate 90° Clockwise"
+    case rotate90CCW = "Rotate 90° Counter-clockwise"
+    
+    func transform(_ position: simd_float3) -> simd_float3 {
+        switch self {
+        case .none:
+            return position
+        case .invertZ:
+            return simd_float3(position.x, position.y, -position.z)
+        case .invertX:
+            return simd_float3(-position.x, position.y, position.z)
+        case .invertXZ:
+            return simd_float3(-position.x, position.y, -position.z)
+        case .swapXZ:
+            return simd_float3(position.z, position.y, position.x)
+        case .rotate90CW:
+            return simd_float3(position.z, position.y, -position.x)
+        case .rotate90CCW:
+            return simd_float3(-position.z, position.y, position.x)
+        }
+    }
+}
+
+// MARK: - Enhanced Path Navigation View Model with Diagnostics
 @MainActor
 class PathNavigationViewModel: NSObject, ObservableObject {
     
@@ -43,10 +72,15 @@ class PathNavigationViewModel: NSObject, ObservableObject {
     @Published var enableHapticFeedback: Bool = true
     
     // NEW: Find My Style Properties
-    @Published var arrowRotation: Double = 0 // Rotation angle for directional arrow
-    @Published var directionColor: Color = .gray // Color feedback (green when aligned)
-    @Published var isAligned: Bool = false // True when pointing at target
-    @Published var distanceText: String = "Calculating..." // Formatted distance text
+    @Published var arrowRotation: Double = 0
+    @Published var directionColor: Color = .gray
+    @Published var isAligned: Bool = false
+    @Published var distanceText: String = "Calculating..."
+    
+    // NEW: Diagnostic Properties
+    @Published var coordinateTransformMode: CoordinateTransformMode = .none
+    @Published var diagnosticInfo: String = ""
+    @Published var showDiagnostics: Bool = false
     
     // Relocalization
     @Published var relocalizationState: RelocalizationState = .notStarted
@@ -59,31 +93,31 @@ class PathNavigationViewModel: NSObject, ObservableObject {
     private var arSession = ARSession()
     private var cancellables = Set<AnyCancellable>()
     
-    // ARWorldMap for coordinate alignment
     private var loadedWorldMap: ARWorldMap?
     private var selectedMap: JSONMap?
     
-    // Helpers
     private let hapticHelper = HapticFeedbackHelper()
     private let audioHelper = AudioGuidanceHelper()
     private let performanceMonitor = PerformanceMonitor()
     private let logger = NavigationLogger.shared
     private var speechSynthesizer = AVSpeechSynthesizer()
     
-    // Position tracking
+    // Position tracking with diagnostics
     private var lastPosition: simd_float3?
     private var lastUpdateTime: Date = Date()
     private var previousTurnInstruction: TurnInstruction = .straight
-    
-    // NEW: Haptic tracking for Find My style feedback
     private var lastAlignmentHapticTime: Date = .distantPast
-    private let alignmentHapticInterval: TimeInterval = 2.0 // Haptic every 2 seconds when aligned
+    
+    // Diagnostic tracking
+    private var previousDistance: Float = 0
+    private var movementHistory: [(position: simd_float3, distance: Float)] = []
     
     // Thresholds
-    private let arrivalThreshold: Float = 0.5 // meters
-    private let updateFrequency: TimeInterval = 0.1 // 10 Hz updates for smooth compass
-    private let audioGuidanceDistance: Float = 3.0 // meters
-    private let alignmentThreshold: Float = 30.0 // degrees (within 30° = aligned)
+    private let arrivalThreshold: Float = 0.5
+    private let updateFrequency: TimeInterval = 0.1
+    private let audioGuidanceDistance: Float = 3.0
+    private let alignmentThreshold: Float = 30.0
+    private let alignmentHapticInterval: TimeInterval = 2.0
     
     var session: ARSession { arSession }
     
@@ -91,10 +125,9 @@ class PathNavigationViewModel: NSObject, ObservableObject {
     override init() {
         super.init()
         setupARSession()
-        logger.log("PathNavigationViewModel initialized")
+        logger.log("PathNavigationViewModel initialized with diagnostics")
     }
     
-    // MARK: - AR Session Setup
     private func setupARSession() {
         arSession.delegate = self
     }
@@ -102,10 +135,9 @@ class PathNavigationViewModel: NSObject, ObservableObject {
     func startARSession() {
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
-        //configuration.worldAlignment = .gravityAndHeading // Important for compass
-        configuration.worldAlignment = .gravity // Important for compass
+        configuration.worldAlignment = .gravity
         arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        logger.log("AR Session started with gravity and heading alignment")
+        logger.log("AR Session started")
     }
     
     func pauseARSession() {
@@ -113,7 +145,92 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         logger.log("AR Session paused")
     }
     
-    // MARK: - Load Map with ARWorldMap
+    // MARK: - Diagnostic Functions
+    
+    func testAllTransformations() {
+        guard let currentPos = getRawCameraPosition(),
+              let target = getNextTarget() else {
+            diagnosticInfo = "⚠️ Cannot test: No position or target available"
+            return
+        }
+        
+        var output = "🧪 COORDINATE TRANSFORMATION TESTS\n"
+        output += String(repeating: "=", count: 60) + "\n\n"
+        output += "📍 Current Position (Raw): \(formatVector(currentPos))\n"
+        output += "🎯 Target: \(target.name) at \(formatVector(target.position))\n\n"
+        
+        for mode in CoordinateTransformMode.allCases {
+            let transformedPos = mode.transform(currentPos)
+            let distance = calculateDistance(from: transformedPos, to: target.position)
+            
+            output += "[\(mode.rawValue)]\n"
+            output += "  Transformed: \(formatVector(transformedPos))\n"
+            output += "  Distance: \(String(format: "%.2f", distance))m\n"
+            
+            if mode == coordinateTransformMode {
+                output += "  👉 CURRENTLY ACTIVE\n"
+            }
+            output += "\n"
+        }
+        
+        output += String(repeating: "=", count: 60) + "\n"
+        diagnosticInfo = output
+        print(output)
+    }
+    
+    func runMovementDiagnostic() {
+        guard movementHistory.count >= 2,
+              let target = getNextTarget() else {
+            diagnosticInfo = "⚠️ Not enough movement data. Keep moving!"
+            return
+        }
+        
+        let recent = movementHistory.suffix(2)
+        let prev = recent.first!
+        let curr = recent.last!
+        
+        let results = CoordinateSystemDiagnostic.analyzeMovement(
+            previousPosition: prev.position,
+            currentPosition: curr.position,
+            targetPosition: target.position,
+            previousDistance: prev.distance,
+            currentDistance: curr.distance
+        )
+        
+        var output = "🚶 MOVEMENT ANALYSIS\n"
+        output += String(repeating: "=", count: 60) + "\n\n"
+        output += formatDiagnosticResults(results)
+        
+        diagnosticInfo = output
+        print(output)
+        
+        if let analysis = results["analysis"] as? [String: Any],
+           let inverted = analysis["coordinateSystemInverted"] as? String,
+           inverted.contains("YES") {
+            print("⚠️ COORDINATE SYSTEM INVERSION DETECTED!")
+            print("💡 Recommended fix: Try 'Invert X & Z' transformation mode")
+        }
+    }
+    
+    // MARK: - Camera Position (with transformation)
+    
+    private func getRawCameraPosition() -> simd_float3? {
+        guard let frame = arSession.currentFrame else { return nil }
+        let transform = frame.camera.transform
+        return simd_float3(
+            transform.columns.3.x,
+            transform.columns.3.y,
+            transform.columns.3.z
+        )
+    }
+    
+    func getCurrentCameraPosition() -> simd_float3? {
+        guard let rawPosition = getRawCameraPosition() else { return nil }
+        return coordinateTransformMode.transform(rawPosition)
+    }
+    
+    // MARK: - Load Map & Navigation
+    
     func loadSelectedMap() {
         navigationState = .loadingMap
         relocalizationState = .notStarted
@@ -203,8 +320,7 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal]
-        //configuration.worldAlignment = .gravityAndHeading // Important!
-        configuration.worldAlignment = .gravity // Important!
+        configuration.worldAlignment = .gravity
         configuration.initialWorldMap = worldMap
         
         arSession.run(configuration, options: [.resetTracking, .removeExistingAnchors])
@@ -260,7 +376,6 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Select Destination
     func selectDestination(_ destination: NavigationNode) {
         selectedDestination = destination
         navigationState = .selectingDestination
@@ -271,7 +386,6 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Calculate Path
     func calculatePath() {
         guard let destination = selectedDestination,
               let engine = pathfindingEngine,
@@ -301,9 +415,10 @@ class PathNavigationViewModel: NSObject, ObservableObject {
                         pathLength: path.path.count
                     )
                     
-                    path.printJSON()
-                    
                     self.logger.log("✅ Path: \(path.path.count) steps, \(String(format: "%.2f", path.totalDistance))m")
+                    
+                    // ALWAYS print the full path for debugging
+                    self.printFullPath(path)
                     
                     if self.enableHapticFeedback {
                         self.hapticHelper.pathCalculated()
@@ -322,7 +437,6 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Start Navigation
     func startNavigation() {
         guard currentPath != nil else { return }
         navigationState = .navigating
@@ -330,8 +444,9 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         showDestinationReached = false
         lastPosition = getCurrentCameraPosition()
         lastUpdateTime = Date()
+        movementHistory.removeAll()
         
-        logger.log("Navigation started")
+        logger.log("Navigation started with transform mode: \(coordinateTransformMode.rawValue)")
         
         if enableHapticFeedback {
             hapticHelper.navigationStarted()
@@ -342,7 +457,19 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Update Navigation (FIXED FOR X,Z HORIZONTAL PLANE)
+    // MARK: - Update Navigation (with diagnostics)
+    
+    func forceNavigationUpdate() {
+        // Force immediate update when transformation changes
+        print("\n🔄 FORCING NAVIGATION UPDATE")
+        print("   Transformation: \(coordinateTransformMode.rawValue)")
+        
+        // Print detailed diagnostic
+        printRealtimeDiagnostic()
+        
+        updateNavigation()
+    }
+    
     func updateNavigation() {
         guard navigationState == .navigating,
               let path = currentPath,
@@ -360,7 +487,6 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         let deltaTime = now.timeIntervalSince(lastUpdateTime)
         lastUpdateTime = now
         
-        // Update statistics
         if var stats = statistics, let lastPos = lastPosition {
             stats.updateSpeed(currentPosition: currentPosition, lastPosition: lastPos, deltaTime: deltaTime)
             statistics = stats
@@ -374,13 +500,17 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         }
         
         let targetNode = path.path[currentPathIndex]
-        let distance = currentPosition.distance(to: targetNode.position)
+        let distance = calculateDistance(from: currentPosition, to: targetNode.position)
         distanceToNextPoint = distance
         
-        // NEW: Update Find My style compass properties
+        // Track movement for diagnostics
+        movementHistory.append((position: currentPosition, distance: distance))
+        if movementHistory.count > 10 {
+            movementHistory.removeFirst()
+        }
+        
         updateFindMyCompass(currentPosition: currentPosition, targetNode: targetNode)
         
-        // Update statistics
         if var stats = statistics {
             let remainingDistance = calculateRemainingDistance(
                 from: currentPathIndex,
@@ -391,161 +521,63 @@ class PathNavigationViewModel: NSObject, ObservableObject {
             statistics = stats
         }
         
-        // Audio guidance
         if enableAudioGuidance && distance <= audioGuidanceDistance && audioHelper.shouldProvideGuidance() {
             provideAudioGuidance(targetNode: targetNode, distance: distance)
         }
         
-        // Check arrival
         if distance <= arrivalThreshold {
             waypointReached(targetNode)
         }
+        
+        previousDistance = distance
     }
     
-    // MARK: - FIXED: Update Find My Compass (X,Z Horizontal Plane)
     private func updateFindMyCompass(currentPosition: simd_float3, targetNode: NavigationNode) {
-        
-        // 1. Update distance text
         updateDistanceText(distanceToNextPoint)
         
-        // 2. Get camera direction from AR frame
         guard let frame = arSession.currentFrame else { return }
         
-        // Get camera forward direction (projected to horizontal X,Z plane)
         let cameraTransform = frame.camera.transform
-        let cameraForward3D = -simd_float3(
+        let cameraForward3D_raw = -simd_float3(
             cameraTransform.columns.2.x,
             cameraTransform.columns.2.y,
             cameraTransform.columns.2.z
         )
         
-        // Project to horizontal plane (X,Z) - Y is vertical, ignore it
-        let cameraForward2D = simd_float2(cameraForward3D.x, cameraForward3D.z)
-        // FIXED: Use atan2(X, Z) for correct bearing (0° = forward/+Z, 90° = right/+X)
-        let cameraHeading = atan2(cameraForward2D.x, cameraForward2D.y)
+        // CRITICAL FIX: Transform the camera forward direction too!
+        let cameraForward3D = coordinateTransformMode.transform(cameraForward3D_raw)
         
-        // 3. Calculate bearing to target (horizontal X,Z plane)
-        let targetDirection2D = simd_float2(
-            targetNode.position.x - currentPosition.x,
-            targetNode.position.z - currentPosition.z
-        )
-        // FIXED: Use atan2(X, Z) for correct bearing
-        let targetBearing = atan2(targetDirection2D.x, targetDirection2D.y)
+        let cameraForwardHorizontal = simd_float2(cameraForward3D.x, cameraForward3D.z)
+        let cameraForwardNorm = simd_normalize(cameraForwardHorizontal)
+        let cameraHeading = atan2(cameraForwardNorm.x, cameraForwardNorm.y)
         
-        // ---------- DEBUG: Compare forward vs right camera headings ----------
-        let camT = cameraTransform
-
-        // Use distinct names for debugging to avoid conflicts
-        let debugForward3D = -simd_float3(camT.columns.2.x, camT.columns.2.y, camT.columns.2.z)
-        let debugRight3D   =  simd_float3(camT.columns.0.x, camT.columns.0.y, camT.columns.0.z)
-
-        // Project both to horizontal XZ plane
-        let forward2D = simd_float2(debugForward3D.x, debugForward3D.z)
-        let right2D   = simd_float2(debugRight3D.x,   debugRight3D.z)
-        let target2D  = targetDirection2D // already (dx, dz)
-
-        // Heading helper (0° = +Z forward, +90° = +X right)
-        func headingRad(from v: simd_float2) -> Float {
-            return atan2(v.x, v.y)
-        }
-
-        let headingForward = headingRad(from: forward2D)
-        let headingRight   = headingRad(from: right2D)
-        let headingTarget  = headingRad(from: target2D)
-
-        // Normalize helper (-π...+π)
-        func normalizeAngle(_ a: Float) -> Float {
-            var angle = a
-            while angle > .pi { angle -= 2 * .pi }
-            while angle < -.pi { angle += 2 * .pi }
-            return angle
-        }
-
-        // Relative angles (target - cameraHeading)
-        let relativeFromForward = normalizeAngle(headingTarget - headingForward)
-        let relativeFromRight   = normalizeAngle(headingTarget - headingRight)
-
-        // Convert to degrees for readability
-        let toDeg: (Float) -> Float = { $0 * 180 / .pi }
-        let camForwardDeg = toDeg(headingForward)
-        let camRightDeg   = toDeg(headingRight)
-        let targetDeg     = toDeg(headingTarget)
-        let relForwardDeg = toDeg(relativeFromForward)
-        let relRightDeg   = toDeg(relativeFromRight)
-
-        // Debug print
-        print("""
-        🧭 CAMERA HEADING DEBUG
-          Camera Forward Heading: \(String(format: "%.2f", camForwardDeg))°
-          Camera Right   Heading: \(String(format: "%.2f", camRightDeg))°
-          Target Bearing:         \(String(format: "%.2f", targetDeg))°
-          Rel (Target - Forward): \(String(format: "%.2f", relForwardDeg))°
-          Rel (Target - Right):   \(String(format: "%.2f", relRightDeg))°
-        """)
-
+        let dx = targetNode.position.x - currentPosition.x
+        let dz = targetNode.position.z - currentPosition.z
+        let targetDirection = simd_normalize(simd_float2(dx, dz))
+        let targetBearing = atan2(targetDirection.x, targetDirection.y)
         
-        // 4. Calculate relative angle (how much to rotate arrow)
         var relativeAngle = targetBearing - cameraHeading
-        
-        // Normalize to -π to π
         while relativeAngle > .pi { relativeAngle -= 2 * .pi }
         while relativeAngle < -.pi { relativeAngle += 2 * .pi }
         
-        // 🔍 DEBUG LOGGING
-        print(String(repeating: "=", count: 60))
-        print("🧭 COMPASS DEBUG")
-        print("Your Position: X=\(String(format: "%.2f", currentPosition.x)), Z=\(String(format: "%.2f", currentPosition.z))")
-        print("Target Position: X=\(String(format: "%.2f", targetNode.position.x)), Z=\(String(format: "%.2f", targetNode.position.z))")
-        print("Target Name: \(targetNode.name)")
-        print("")
-        print("Camera Forward 3D: X=\(String(format: "%.3f", cameraForward3D.x)), Y=\(String(format: "%.3f", cameraForward3D.y)), Z=\(String(format: "%.3f", cameraForward3D.z))")
-        print("Camera Forward 2D: X=\(String(format: "%.3f", cameraForward2D.x)), Z=\(String(format: "%.3f", cameraForward2D.y))")
-        print("Camera Heading: \(String(format: "%.1f", cameraHeading * 180 / .pi))°")
-        print("")
-        print("Target Direction 2D: X=\(String(format: "%.3f", targetDirection2D.x)), Z=\(String(format: "%.3f", targetDirection2D.y))")
-        print("Target Bearing: \(String(format: "%.1f", targetBearing * 180 / .pi))°")
-        print("")
-        print("Relative Angle: \(String(format: "%.1f", relativeAngle * 180 / .pi))°")
-        print("Alignment Threshold: ±30°")
-        print("Is Aligned: \(abs(relativeAngle * 180 / .pi) < 30)")
-        print("Arrow Rotation: \(String(format: "%.1f", arrowRotation))°")
-        print(String(repeating: "=", count: 60))
-        
-        // Convert to degrees for UI rotation
         arrowRotation = Double(relativeAngle * 180 / .pi)
         
-        // --- DEBUG: Print camera and target headings ---
-        let cameraHeadingDeg = cameraHeading * 180 / .pi
-        let targetBearingDeg = targetBearing * 180 / .pi
-        let relativeAngleDeg = relativeAngle * 180 / .pi
-
-        print("""
-        🧭 DEBUG:
-          Camera Heading: \(String(format: "%.2f", cameraHeadingDeg))°
-          Target Bearing: \(String(format: "%.2f", targetBearingDeg))°
-          Relative Angle: \(String(format: "%.2f", relativeAngleDeg))°
-          (Arrow Rotation: \(String(format: "%.2f", arrowRotation))°)
-        """)
-
+        print("🧭 Transform: \(coordinateTransformMode.rawValue) | Distance: \(String(format: "%.2f", distanceToNextPoint))m | Arrow: \(String(format: "%.1f", arrowRotation))°")
         
-        // 5. Check alignment (within threshold degrees)
         let alignmentThresholdRad = alignmentThreshold * .pi / 180
         let wasAligned = isAligned
         isAligned = abs(relativeAngle) < alignmentThresholdRad
         
-        // 6. Update color based on alignment
         updateDirectionColor(alignmentAngle: abs(relativeAngle))
         
-        // 7. Trigger haptic if newly aligned
         if isAligned && !wasAligned {
             triggerAlignmentHaptic()
         } else if isAligned && Date().timeIntervalSince(lastAlignmentHapticTime) > alignmentHapticInterval {
             triggerAlignmentHaptic()
         }
         
-        // 8. Update turn instruction (with hysteresis) using horizontal plane direction
         let direction3D = currentPosition.horizontalDirection(to: targetNode.position)
-        let cameraForward3DProjected = simd_float3(cameraForward2D.x, 0, cameraForward2D.y)
+        let cameraForward3DProjected = simd_float3(cameraForwardNorm.x, 0, cameraForwardNorm.y)
         turnInstruction = TurnInstruction.from(
             currentDirection: cameraForward3DProjected,
             targetDirection: direction3D,
@@ -553,11 +585,87 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         )
         previousTurnInstruction = turnInstruction
         
-        // 9. Update compass direction
         let angle = currentPosition.angle(to: targetNode.position)
         currentDirection = CompassDirection.from(angle: angle)
+    }
+    
+    // MARK: - Helper Functions
+    
+    private func printFullPath(_ path: PathResult) {
+        print(String(repeating: "=", count: 80))
+        print("🗺️  FULL NAVIGATION PATH")
+        print(String(repeating: "=", count: 80))
+        print("Final Destination: \(path.path.last?.name ?? "Unknown")")
+        print("Total Distance: \(String(format: "%.2f", path.totalDistance))m")
+        print("Total Waypoints: \(path.path.count)")
+        print("")
+        print("PATH SEQUENCE:")
+        print(String(repeating: "-", count: 80))
         
-
+        for (index, node) in path.path.enumerated() {
+            let nodeType: String
+            switch node.nodeType {
+            case .beacon(let category):
+                nodeType = "🎯 BEACON (\(category))"
+            case .waypoint:
+                nodeType = "📍 WAYPOINT"
+            case .doorway:
+                nodeType = "🚪 DOORWAY"
+            }
+            
+            let position = node.position
+            print("\(index + 1). \(nodeType)")
+            print("   Name: \(node.name)")
+            print("   Position: X:\(String(format: "%.2f", position.x)) Y:\(String(format: "%.2f", position.y)) Z:\(String(format: "%.2f", position.z))")
+            
+            if index > 0 {
+                let prevNode = path.path[index - 1]
+                let dist = calculateDistance(from: prevNode.position, to: position)
+                print("   Distance from previous: \(String(format: "%.2f", dist))m")
+            }
+            print("")
+        }
+        
+        print(String(repeating: "=", count: 80))
+        print("")
+    }
+    
+    private func calculateDistance(from: simd_float3, to: simd_float3) -> Float {
+        let dx = to.x - from.x
+        let dz = to.z - from.z
+        return sqrt(dx * dx + dz * dz)
+    }
+    
+    private func formatVector(_ vector: simd_float3) -> String {
+        return String(format: "X: %.2f, Y: %.2f, Z: %.2f", vector.x, vector.y, vector.z)
+    }
+    
+    private func formatDiagnosticResults(_ results: [String: Any]) -> String {
+        var output = ""
+        for (key, value) in results.sorted(by: { $0.key < $1.key }) {
+            if let nestedDict = value as? [String: Any] {
+                output += "\(key):\n"
+                for (nestedKey, nestedValue) in nestedDict {
+                    output += "  \(nestedKey): \(nestedValue)\n"
+                }
+            } else {
+                output += "\(key): \(value)\n"
+            }
+        }
+        return output
+    }
+    
+    private func calculateRemainingDistance(from index: Int, path: [NavigationNode], currentPosition: simd_float3) -> Float {
+        guard index < path.count else { return 0 }
+        
+        var distance: Float = 0
+        distance += calculateDistance(from: currentPosition, to: path[index].position)
+        
+        for i in index..<(path.count - 1) {
+            distance += calculateDistance(from: path[i].position, to: path[i + 1].position)
+        }
+        
+        return distance
     }
     
     private func updateDistanceText(_ distance: Float) {
@@ -571,15 +679,14 @@ class PathNavigationViewModel: NSObject, ObservableObject {
     }
     
     private func updateDirectionColor(alignmentAngle: Float) {
-        // Green when aligned, yellow when somewhat aligned, orange/red when off
-        let maxAngle: Float = .pi // 180 degrees
+        let maxAngle: Float = .pi
         let normalizedAngle = min(alignmentAngle / maxAngle, 1.0)
         
-        if normalizedAngle < 0.17 { // < 30 degrees
+        if normalizedAngle < 0.17 {
             directionColor = .green
-        } else if normalizedAngle < 0.4 { // < 72 degrees
+        } else if normalizedAngle < 0.4 {
             directionColor = .yellow
-        } else if normalizedAngle < 0.6 { // < 108 degrees
+        } else if normalizedAngle < 0.6 {
             directionColor = .orange
         } else {
             directionColor = .red
@@ -590,44 +697,35 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         guard enableHapticFeedback else { return }
         lastAlignmentHapticTime = Date()
         
-        // Light tap when aligned
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred()
     }
     
-    // MARK: - Waypoint Reached
     private func waypointReached(_ node: NavigationNode) {
-        logger.log("Reached: \(node.name) (\(currentPathIndex + 1)/\(currentPath?.path.count ?? 0))")
-        
-        if enableHapticFeedback {
-            hapticHelper.waypointReached()
-        }
+        logger.log("Reached: \(node.name)")
         
         if var stats = statistics {
             stats.waypointsReached += 1
             statistics = stats
         }
         
-        NotificationCenter.default.post(
-            name: .waypointReached,
-            object: nil,
-            userInfo: ["nodeName": node.name, "index": currentPathIndex]
-        )
+        if enableHapticFeedback {
+            hapticHelper.waypointReached()
+        }
         
         currentPathIndex += 1
         
-        if enableAudioGuidance, let nextTarget = getNextTarget() {
-            speakGuidance("Reached \(node.name). Next: \(nextTarget.name).")
-        }
-        
-        if currentPathIndex >= currentPath?.path.count ?? 0 {
+        if currentPathIndex >= (currentPath?.path.count ?? 0) {
             reachedDestination()
+        } else if enableAudioGuidance, let nextTarget = getNextTarget() {
+            speakGuidance("Reached \(node.name). Continue to \(nextTarget.name).")
         }
     }
     
     private func reachedDestination() {
-        logger.log("Destination reached!")
+        guard let destination = currentPath?.path.last else { return }
         
+        logger.log("🎉 Reached destination: \(destination.name)")
         navigationState = .destinationReached
         showDestinationReached = true
         
@@ -641,44 +739,27 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         }
         
         if enableAudioGuidance {
-            speakGuidance("You've arrived at \(selectedDestination?.name ?? "your destination")!")
+            speakGuidance("You have arrived at \(destination.name).")
         }
         
-        NotificationCenter.default.post(name: .destinationReached, object: nil)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.resetNavigation()
-        }
+        NotificationCenter.default.post(name: .navigationEnded, object: nil)
     }
     
-    // MARK: - Audio Guidance
     private func provideAudioGuidance(targetNode: NavigationNode, distance: Float) {
-        let guidance = audioHelper.generateGuidance(
-            distance: distance,
-            targetName: targetNode.name,
-            direction: currentDirection,
-            turn: turnInstruction
-        )
+        let distanceText = distance < 1.0 ?
+            "\(Int(distance * 100)) centimeters" :
+            String(format: "%.1f meters", distance)
         
-        speakGuidance(guidance)
-        audioHelper.markGuidanceProvided()
+        let directionText = turnInstruction.description
+        speakGuidance("\(directionText). \(distanceText) to \(targetNode.name).")
     }
     
     private func speakGuidance(_ text: String) {
-        guard !speechSynthesizer.isSpeaking else { return }
-        
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.95
+        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+        utterance.rate = 0.5
         speechSynthesizer.speak(utterance)
-        
-        logger.debug("Audio: \(text)")
-    }
-    
-    // MARK: - Helper Methods
-    func getCurrentCameraPosition() -> simd_float3? {
-        guard let frame = arSession.currentFrame else { return nil }
-        return frame.camera.position
+        audioHelper.markGuidanceProvided()
     }
     
     func getNextTarget() -> NavigationNode? {
@@ -702,20 +783,6 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         return currentPosition.horizontalDirection(to: target.position)
     }
     
-    private func calculateRemainingDistance(from index: Int, path: [NavigationNode], currentPosition: simd_float3) -> Float {
-        guard index < path.count else { return 0 }
-        
-        var distance: Float = 0
-        distance += currentPosition.distance(to: path[index].position)
-        
-        for i in index..<(path.count - 1) {
-            distance += path[i].position.distance(to: path[i + 1].position)
-        }
-        
-        return distance
-    }
-    
-    // MARK: - Reset Navigation
     func resetNavigation() {
         currentPath = nil
         currentPathIndex = 0
@@ -724,8 +791,8 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         statistics = nil
         lastPosition = nil
         navigationState = .mapLoaded
+        movementHistory.removeAll()
         
-        // Reset Find My properties
         arrowRotation = 0
         directionColor = .gray
         isAligned = false
@@ -751,6 +818,7 @@ class PathNavigationViewModel: NSObject, ObservableObject {
         selectedMap = nil
         isRelocalized = false
         relocalizationState = .notStarted
+        movementHistory.removeAll()
         
         logger.log("Cleared all")
     }
