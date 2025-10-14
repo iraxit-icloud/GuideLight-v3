@@ -2,7 +2,7 @@
 //  NavigationMainView.swift
 //  GuideLight v3
 //
-//  Complete file with next waypoint display and arrival messages
+//  Updated with improved UI combining both screenshot styles
 //
 
 import SwiftUI
@@ -67,7 +67,6 @@ struct NavigationMainView: View {
     }
     
     // MARK: - Calibration Overlay
-    
     private var calibrationOverlay: some View {
         VStack {
             Spacer()
@@ -99,18 +98,22 @@ struct NavigationMainView: View {
         }
     }
     
-    // MARK: - Navigation Overlay
-    
+    // MARK: - Navigation Overlay (UPDATED)
     private func navigationOverlay(navViewModel: NavigationViewModel) -> some View {
         ZStack {
             VStack(spacing: 0) {
-                // Top Status Bar
-                navigationStatusBar(navViewModel: navViewModel)
+                // Top Status Bar (observing subview)
+                NavigationStatusBarUpdatedView(
+                    viewModel: navViewModel,
+                    formatTimeShort: formatTimeShort,
+                    formatDistance: navViewModel.formatDistance
+                )
+                .padding(.top, 60)
                 
                 Spacer()
                 
-                // Center Clock Compass
-                ClockCompassView(viewModel: navViewModel)
+                // Center Clock Compass (Combined style)
+                ImprovedClockCompassView(viewModel: navViewModel)
                 
                 Spacer()
                 
@@ -126,7 +129,6 @@ struct NavigationMainView: View {
     }
     
     // MARK: - Arrival Message View
-    
     private func arrivalMessageView(message: String) -> some View {
         VStack {
             Spacer()
@@ -152,75 +154,7 @@ struct NavigationMainView: View {
         }
     }
     
-    // MARK: - Status Bar (Shows Next Waypoint)
-    
-    private func navigationStatusBar(navViewModel: NavigationViewModel) -> some View {
-        VStack(spacing: 8) {
-            // Final destination at top
-            if let destination = navViewModel.destinationBeacon {
-                Text("To: \(destination.name)")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.7))
-                    .cornerRadius(20)
-            }
-            
-            // Current/next waypoint (immediate target)
-            if let progress = navViewModel.progress,
-               let currentWaypoint = navViewModel.currentWaypoint {
-                VStack(spacing: 4) {
-                    Text("🏁 Next: \(currentWaypoint.name)")
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                    
-                    HStack(spacing: 20) {
-                        // Distance to NEXT waypoint
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.forward")
-                                .font(.caption)
-                            Text(navViewModel.formatDistance(progress.distanceToNextWaypoint))
-                                .font(.title2.bold())
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.7))
-                        .cornerRadius(12)
-                        
-                        // Time remaining
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock")
-                                .font(.caption)
-                            Text(navViewModel.formatTime(progress.estimatedTimeRemaining))
-                                .font(.caption.bold())
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.7))
-                        .cornerRadius(12)
-                    }
-                    
-                    // Progress indicator
-                    if let path = navViewModel.currentPath {
-                        Text("Step \(navViewModel.currentWaypointIndex + 1) of \(path.waypoints.count)")
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.black.opacity(0.7))
-                .cornerRadius(12)
-            }
-        }
-        .padding(.top, 60)
-    }
-    
     // MARK: - Navigation Controls
-    
     private func navigationControls(navViewModel: NavigationViewModel) -> some View {
         HStack(spacing: 20) {
             if case .navigating = navViewModel.navigationState {
@@ -263,120 +197,253 @@ struct NavigationMainView: View {
     }
     
     // MARK: - Helper Methods
-    
     private func completeCalibration(_ calibration: CalibrationData) {
         navigationViewModel = NavigationViewModel(map: map, calibration: calibration)
         showingCalibration = false
         showingDestinationPicker = true
     }
+    
+    private func formatTimeShort(_ time: TimeInterval) -> String {
+        guard time.isFinite && time >= 0 else { return "—" }
+        let m = Int(time) / 60
+        let s = Int(time) % 60
+        if m >= 60 {
+            let h = m / 60
+            let rm = m % 60
+            return "\(h)h \(rm)m"
+        } else if m > 0 {
+            return "\(m)m \(s)s"
+        } else {
+            return "\(s)s"
+        }
+    }
 }
 
-// MARK: - Clock Compass View
-struct ClockCompassView: View {
+// MARK: - Observing Status Bar (Fix for non-updating To/Next/Distance/Time)
+private struct NavigationStatusBarUpdatedView: View {
+    @ObservedObject var viewModel: NavigationViewModel
+    let formatTimeShort: (TimeInterval) -> String
+    let formatDistance: (Float) -> String
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            // Final destination
+            if let destination = viewModel.destinationBeacon {
+                Text("To: \(destination.name)")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(Color.black.opacity(0.75))
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8)
+            }
+            
+            // Current waypoint with flag icon
+            if let currentWaypoint = viewModel.currentWaypoint {
+                HStack(spacing: 8) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white)
+                    
+                    Text("Next: \(currentWaypoint.name)")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .fill(Color.blue.opacity(0.9))
+                )
+                .shadow(color: .black.opacity(0.3), radius: 6)
+            }
+            
+            // Distance and Time boxes
+            if let progress = viewModel.progress {
+                HStack(spacing: 16) {
+                    // Distance box
+                    VStack(spacing: 2) {
+                        Text(formatDistance(progress.distanceToNextWaypoint))
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(.white)
+                        Text("distance")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black.opacity(0.75))
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8)
+                    
+                    // Time box
+                    VStack(spacing: 2) {
+                        Text(formatTimeShort(progress.estimatedTimeRemaining))
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(.white)
+                        Text("time")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black.opacity(0.75))
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8)
+                }
+            }
+        }
+        // Small, targeted animations on change
+        .animation(.easeInOut(duration: 0.2), value: viewModel.destinationBeacon?.id)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.currentWaypoint?.id)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.progress?.distanceToNextWaypoint)
+    }
+}
+
+// MARK: - Improved Clock Compass (center)
+struct ImprovedClockCompassView: View {
     @ObservedObject var viewModel: NavigationViewModel
     
     var body: some View {
         ZStack {
+            // Background disk
             Circle()
                 .fill(Color.black.opacity(0.6))
-                .frame(width: 280, height: 280)
+                .frame(width: 320, height: 320)
+                .shadow(color: .black.opacity(0.4), radius: 12)
             
             Circle()
-                .stroke(Color.white.opacity(0.4), lineWidth: 4)
-                .frame(width: 240, height: 240)
+                .stroke(Color.white.opacity(0.3), lineWidth: 3)
+                .frame(width: 280, height: 280)
             
-            ClockNumbers()
-            ClockHourMarkers()
+            // Clock face with prominent numbers
+            ClockFaceNumbers()
             
+            // Arrow hand
             if let progress = viewModel.progress {
-                ClockArrow(
+                ClockArrowHand(
                     headingError: Double(progress.headingError),
                     color: progress.clockArrowColor
                 )
-                .frame(width: 200, height: 200)
+                .frame(width: 240, height: 240)
             }
             
+            // Center dot
             Circle()
                 .fill(Color.white)
-                .frame(width: 16, height: 16)
-                .shadow(color: .black.opacity(0.5), radius: 2)
+                .frame(width: 20, height: 20)
+                .shadow(color: .black.opacity(0.5), radius: 3)
             
+            // Instruction text below clock
             if let progress = viewModel.progress {
                 VStack(spacing: 4) {
                     Text(progress.clockInstructionText)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.white)
                         .multilineTextAlignment(.center)
                     
                     Text(progress.degreeHelperText)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.6))
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.8))
-                .cornerRadius(12)
-                .offset(y: 160)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.8))
+                )
+                .offset(y: 200)
             }
         }
     }
 }
 
-struct ClockNumbers: View {
+// MARK: - Clock Face with Prominent Numbers
+struct ClockFaceNumbers: View {
     var body: some View {
         ZStack {
-            Text("12").font(.system(size: 24, weight: .bold)).foregroundColor(.white).offset(y: -110)
-            Text("3").font(.system(size: 24, weight: .bold)).foregroundColor(.white).offset(x: 110)
-            Text("6").font(.system(size: 24, weight: .bold)).foregroundColor(.white).offset(y: 110)
-            Text("9").font(.system(size: 24, weight: .bold)).foregroundColor(.white).offset(x: -110)
+            Text("12")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(y: -120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+            
+            Text("3")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(x: 120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+            
+            Text("6")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(y: 120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+            
+            Text("9")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(x: -120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
         }
     }
 }
 
-struct ClockHourMarkers: View {
-    let hours = [1, 2, 4, 5, 7, 8, 10, 11]
-    var body: some View {
-        ZStack {
-            ForEach(hours, id: \.self) { hour in
-                Text("\(hour)")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.7))
-                    .offset(y: -95)
-                    .rotationEffect(.degrees(Double(hour) * 30))
-                    .rotationEffect(.degrees(-Double(hour) * 30))
-            }
-        }
-    }
-}
-
-struct ClockArrow: View {
+// MARK: - Clock Arrow Hand
+struct ClockArrowHand: View {
     let headingError: Double
     let color: Color
     
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 5)
-                .fill(LinearGradient(colors: [color, color.opacity(0.6)], startPoint: .bottom, endPoint: .top))
-                .frame(width: 14, height: 110)
-                .offset(y: -25)
+            // Arrow shaft (solid rectangle)
+            RoundedRectangle(cornerRadius: 6)
+                .fill(
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
+                )
+                .frame(width: 16, height: 120)
+                .offset(y: -30)
+                .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
             
+            // Arrow head (triangle) - Indraneel
+            /*
             Path { path in
-                path.move(to: CGPoint(x: 0, y: -80))
-                path.addLine(to: CGPoint(x: -28, y: -45))
-                path.addLine(to: CGPoint(x: 28, y: -45))
+                path.move(to: CGPoint(x: 0, y: -90))
+                path.addLine(to: CGPoint(x: -30, y: -55))
+                path.addLine(to: CGPoint(x: 30, y: -55))
                 path.closeSubpath()
             }
             .fill(color)
             .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
-            
-            if abs(headingError) < 0.087 {
+            */
+             
+            // Glow effect when aligned
+            if abs(headingError) < 0.15 { // ~8.6 degrees
                 Circle()
-                    .fill(RadialGradient(colors: [color.opacity(0.5), .clear], center: .center, startRadius: 30, endRadius: 70))
-                    .frame(width: 140, height: 140)
+                    .fill(
+                        RadialGradient(
+                            colors: [color.opacity(0.4), .clear],
+                            center: .center,
+                            startRadius: 40,
+                            endRadius: 100
+                        )
+                    )
+                    .frame(width: 200, height: 200)
             }
         }
         .rotationEffect(.degrees(headingError * 180 / .pi))
-        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: headingError)
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: headingError)
     }
 }
 

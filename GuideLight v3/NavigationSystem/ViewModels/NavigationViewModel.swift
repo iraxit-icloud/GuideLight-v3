@@ -2,7 +2,7 @@
 //  NavigationViewModel.swift
 //  GuideLight v3
 //
-//  Complete file with arrival messages and path JSON
+//  Complete file with final-destination "Arrived" message
 //
 
 import Foundation
@@ -148,7 +148,7 @@ class NavigationViewModel: ObservableObject {
         )
         
         let remainingDistance = currentPath?.distance(from: currentWaypointIndex) ?? 0
-        let estimatedTime = TimeInterval(remainingDistance / 1.2)
+        let estimatedTime = TimeInterval(remainingDistance / 1.2) // ~1.2 m/s walking
         
         progress = NavigationProgress(
             currentWaypointIndex: currentWaypointIndex,
@@ -190,8 +190,13 @@ class NavigationViewModel: ObservableObject {
         let waypoint = path.waypoints[currentWaypointIndex]
         print("✅ Arrived at waypoint: \(waypoint.name)")
         
-        // Show arrival message
-        arrivalMessage = "Arrived at \(waypoint.name)"
+        // ✅ If this is the final waypoint (destination), show "Arrived"
+        let isFinal = (currentWaypointIndex >= path.waypoints.count - 1)
+        if isFinal {
+            arrivalMessage = "Arrived"
+        } else {
+            arrivalMessage = "Arrived at \(waypoint.name)"
+        }
         showArrivalMessage = true
         
         if let instruction = waypoint.audioInstruction {
@@ -207,6 +212,7 @@ class NavigationViewModel: ObservableObject {
             }
         }
         
+        // Advance waypoint
         currentWaypointIndex += 1
         
         if currentWaypointIndex >= path.waypoints.count {
@@ -218,7 +224,6 @@ class NavigationViewModel: ObservableObject {
                 totalWaypoints: path.waypoints.count
             )
             lastDistanceToWaypoint = nil
-            
             print("➡️ Now navigating to: \(path.waypoints[currentWaypointIndex].name)")
         }
     }
@@ -253,7 +258,7 @@ class NavigationViewModel: ObservableObject {
         print("❌ Navigation cancelled")
     }
     
-    // MARK: - Compass Visualization
+    // MARK: - Compass Visualization (used by UI)
     
     func getCompassRotation() -> Float {
         guard let progress = progress else { return 0 }
@@ -264,6 +269,8 @@ class NavigationViewModel: ObservableObject {
         guard let progress = progress else { return "gray" }
         return progress.alignmentQuality.color
     }
+    
+    // MARK: - Formatting helpers (used by overlays)
     
     func formatDistance(_ distance: Float) -> String {
         if distance < 1.0 {
@@ -278,7 +285,6 @@ class NavigationViewModel: ObservableObject {
     func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
-        
         if minutes > 0 {
             return "\(minutes)m \(seconds)s"
         } else {
