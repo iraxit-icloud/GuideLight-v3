@@ -39,10 +39,10 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		8F9A97FC2E9849A4000E88F1 /* Exceptions for "GuideLight v3" folder in "GuideLight v3" target */ = {
+		8F9A98382E9C6596000E88F1 /* Exceptions for "GuideLight v3" folder in "GuideLight v3" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Navigation/Views/PathNavigationView.swift.backup,
+				BuildMap/Models/JSONMapManager.swift.backup,
 			);
 			target = 8F4678F32E7FB3E4009D770A /* GuideLight v3 */;
 		};
@@ -52,7 +52,7 @@
 		8F4678F62E7FB3E4009D770A /* GuideLight v3 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				8F9A97FC2E9849A4000E88F1 /* Exceptions for "GuideLight v3" folder in "GuideLight v3" target */,
+				8F9A98382E9C6596000E88F1 /* Exceptions for "GuideLight v3" folder in "GuideLight v3" target */,
 			);
 			path = "GuideLight v3";
 			sourceTree = "<group>";
