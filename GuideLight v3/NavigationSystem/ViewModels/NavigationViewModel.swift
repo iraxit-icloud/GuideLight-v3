@@ -2,7 +2,7 @@
 //  NavigationViewModel.swift
 //  GuideLight v3
 //
-//  Complete file with final-destination "Arrived" message
+//  Complete file with multi-stop "Arrived at X, now proceed to Y" messaging
 //
 
 import Foundation
@@ -190,14 +190,41 @@ class NavigationViewModel: ObservableObject {
         let waypoint = path.waypoints[currentWaypointIndex]
         print("✅ Arrived at waypoint: \(waypoint.name)")
         
-        // ✅ If this is the final waypoint (destination), show "Arrived"
+        // Determine if this is the final waypoint
         let isFinal = (currentWaypointIndex >= path.waypoints.count - 1)
+        
+        // Compose arrival message
+        let arrivedAtX: String = waypoint.name.isEmpty ? "Arrived" : "Arrived at \(waypoint.name)"
+        var message: String
+        
         if isFinal {
-            arrivalMessage = "Arrived"
+            message = "Arrived"
         } else {
-            arrivalMessage = "Arrived at \(waypoint.name)"
+            // Find the next DESTINATION-type waypoint ahead (not just the immediate next)
+            let nextDestinationName: String? = {
+                let slice = path.waypoints.suffix(from: currentWaypointIndex + 1)
+                if let nextDest = slice.first(where: { $0.type == .destination }) {
+                    return nextDest.name.isEmpty ? "next destination" : nextDest.name
+                }
+                // Fallback: if none marked as destination, try immediate next waypoint
+                if let next = nextWaypoint {
+                    return next.name.isEmpty ? "next destination" : next.name
+                }
+                return nil
+            }()
+            
+            if let y = nextDestinationName {
+                message = "\(arrivedAtX), now proceed to \(y)"
+            } else {
+                // No clear next destination—default to simple arrived phrasing
+                message = arrivedAtX
+            }
         }
+        
+        // Show + speak arrival message
+        arrivalMessage = message
         showArrivalMessage = true
+        VoiceGuide.shared.speak(message)
         
         if let instruction = waypoint.audioInstruction {
             print("🔊 \(instruction)")
@@ -208,6 +235,7 @@ class NavigationViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             await MainActor.run {
                 self.showArrivalMessage = false
+                // Keep message nil after the toast; the dock will handle .arrived state text itself.
                 self.arrivalMessage = nil
             }
         }

@@ -1,10 +1,9 @@
+//
 //  NavigationMainView.swift
 //  GuideLight v3
 //
-//  Floating curved dock layout.
-//  Distance chip shows *steps to next waypoint* (user preference stepsPerMeter)
-//  Time chip uses *user walking speed* (walkingSpeedMps).
-//  Instruction line shows arrival message while visible; sticks to "Arrived" when state == .arrived.
+//  Updated with improved UI combining both screenshot styles
+//
 
 import SwiftUI
 import ARKit
@@ -48,7 +47,7 @@ struct NavigationMainView: View {
                 )
             }
             
-            // Overlays
+            // Overlay UI
             if showingCalibration {
                 calibrationOverlay
             } else if let navViewModel = navigationViewModel {
@@ -99,24 +98,27 @@ struct NavigationMainView: View {
         }
     }
     
-    // MARK: - Navigation Overlay (Floating Dock + Controls + Arrival)
+    // MARK: - Navigation Overlay (UPDATED)
     private func navigationOverlay(navViewModel: NavigationViewModel) -> some View {
         ZStack {
-            VStack {
-                Spacer()
-                
-                // Floating pill-shaped dock at bottom
-                FloatingDockView(
+            VStack(spacing: 0) {
+                // Top Status Bar (observing subview)
+                NavigationStatusBarUpdatedView(
                     viewModel: navViewModel,
                     formatTimeShort: formatTimeShort,
                     formatDistance: navViewModel.formatDistance
                 )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+                .padding(.top, 60)
                 
-                // Controls (pause/resume/cancel)
+                Spacer()
+                
+                // Center Clock Compass (Combined style)
+                ImprovedClockCompassView(viewModel: navViewModel)
+                
+                Spacer()
+                
+                // Bottom Controls
                 navigationControls(navViewModel: navViewModel)
-                    .padding(.bottom, 8)
             }
             
             // Arrival Message Overlay
@@ -162,10 +164,9 @@ struct NavigationMainView: View {
                     Image(systemName: "pause.fill")
                         .font(.title2)
                         .foregroundColor(.white)
-                        .frame(width: 56, height: 56)
-                        .background(Color.orange.opacity(0.95))
+                        .frame(width: 60, height: 60)
+                        .background(Color.orange.opacity(0.9))
                         .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.3), radius: 5)
                 }
             } else if case .paused = navViewModel.navigationState {
                 Button {
@@ -174,10 +175,9 @@ struct NavigationMainView: View {
                     Image(systemName: "play.fill")
                         .font(.title2)
                         .foregroundColor(.white)
-                        .frame(width: 56, height: 56)
-                        .background(Color.green.opacity(0.95))
+                        .frame(width: 60, height: 60)
+                        .background(Color.green.opacity(0.9))
                         .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.3), radius: 5)
                 }
             }
             
@@ -188,12 +188,12 @@ struct NavigationMainView: View {
                 Image(systemName: "xmark")
                     .font(.title2)
                     .foregroundColor(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Color.red.opacity(0.95))
+                    .frame(width: 60, height: 60)
+                    .background(Color.red.opacity(0.9))
                     .clipShape(Circle())
-                    .shadow(color: .black.opacity(0.3), radius: 5)
             }
         }
+        .padding(.bottom, 40)
     }
     
     // MARK: - Helper Methods
@@ -219,172 +219,227 @@ struct NavigationMainView: View {
     }
 }
 
-// MARK: - Floating Curved Dock
-private struct FloatingDockView: View {
+// MARK: - Observing Status Bar (Fix for non-updating To/Next/Distance/Time)
+private struct NavigationStatusBarUpdatedView: View {
     @ObservedObject var viewModel: NavigationViewModel
     let formatTimeShort: (TimeInterval) -> String
-    let formatDistance: (Float) -> String   // kept for compatibility, unused for steps
-    
-    // 🔧 User preferences (editable from Settings)
-    @AppStorage("stepsPerMeter") private var stepsPerMeter: Double = 1.35       // avg adult ~1.3–1.5
-    @AppStorage("walkingSpeedMps") private var walkingSpeedMps: Double = 1.20   // m/s (slow indoor pace)
+    let formatDistance: (Float) -> String
     
     var body: some View {
-        HStack(spacing: 16) {
-            // LEFT: Compact compass (rotating arrow)
-            MiniCompassView(headingError: viewModel.progress?.headingError ?? 0)
-                .frame(width: 84, height: 84)
+        VStack(spacing: 12) {
+            // Final destination
+            if let destination = viewModel.destinationBeacon {
+                Text("To: \(destination.name)")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(
+                        Capsule()
+                            .fill(Color.black.opacity(0.75))
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8)
+            }
             
-            // RIGHT: Two rows
-            VStack(alignment: .leading, spacing: 8) {
-                // Row 1: Instruction / Arrival message precedence
-                if viewModel.showArrivalMessage, let msg = viewModel.arrivalMessage {
-                    Text(msg)
-                        .font(.system(size: 18, weight: .semibold))
+            // Current waypoint with flag icon
+            if let currentWaypoint = viewModel.currentWaypoint {
+                HStack(spacing: 8) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 14))
                         .foregroundColor(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                } else if case .arrived = viewModel.navigationState {
-                    Text("Arrived")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                } else if let progress = viewModel.progress {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(progress.clockInstructionText)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.85)
-                        
-                        Text(progress.degreeHelperText)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.7))
-                    }
-                } else {
-                    Text("Align with your route")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.9))
-                }
-                
-                // Row 2: To/Next (left)  •  Steps / Time-to-next (right)
-                HStack(alignment: .center, spacing: 12) {
-                    // To / Next labels
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let dest = viewModel.destinationBeacon {
-                            Text("To: \(dest.name)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.95))
-                                .lineLimit(1)
-                        }
-                        if let next = viewModel.currentWaypoint {
-                            Text("Next: \(next.name)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.85))
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     
-                    // Steps / Time chips
-                    if let progress = viewModel.progress {
-                        let steps = max(1, Int((Double(progress.distanceToNextWaypoint) * stepsPerMeter).rounded()))
-                        let timeToNext = TimeInterval(Double(progress.distanceToNextWaypoint) / max(0.2, walkingSpeedMps)) // guard divide-by-zero
-                        HStack(spacing: 8) {
-                            RoundedChip(text: steps == 1 ? "1 step" : "\(steps) steps")
-                            RoundedChip(text: formatTimeShort(timeToNext))
-                        }
-                    } else {
-                        HStack(spacing: 8) {
-                            RoundedChip(text: "—")
-                            RoundedChip(text: "—")
-                        }
+                    Text("Next: \(currentWaypoint.name)")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .fill(Color.blue.opacity(0.9))
+                )
+                .shadow(color: .black.opacity(0.3), radius: 6)
+            }
+            
+            // Distance and Time boxes
+            if let progress = viewModel.progress {
+                HStack(spacing: 16) {
+                    // Distance box
+                    VStack(spacing: 2) {
+                        Text(formatDistance(progress.distanceToNextWaypoint))
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(.white)
+                        Text("distance")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.8))
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black.opacity(0.75))
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8)
+                    
+                    // Time box
+                    VStack(spacing: 2) {
+                        Text(formatTimeShort(progress.estimatedTimeRemaining))
+                            .font(.system(size: 36, weight: .bold))
+                            .foregroundColor(.white)
+                        Text("time")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.black.opacity(0.75))
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(
-            Capsule()
-                .fill(Color.black.opacity(0.72))
-                .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 8)
-        )
+        // Small, targeted animations on change
+        .animation(.easeInOut(duration: 0.2), value: viewModel.destinationBeacon?.id)
         .animation(.easeInOut(duration: 0.2), value: viewModel.currentWaypoint?.id)
         .animation(.easeInOut(duration: 0.2), value: viewModel.progress?.distanceToNextWaypoint)
     }
 }
 
-// MARK: - Mini Compass
-private struct MiniCompassView: View {
-    let headingError: Float
+// MARK: - Improved Clock Compass (center)
+struct ImprovedClockCompassView: View {
+    @ObservedObject var viewModel: NavigationViewModel
     
     var body: some View {
         ZStack {
-            Circle().fill(Color.black.opacity(0.35))
-            Circle().stroke(Color.white.opacity(0.30), lineWidth: 2).padding(6)
-            CompassTicks().stroke(Color.white.opacity(0.35), lineWidth: 2).padding(14)
-            ClockArrowHand(headingError: Double(headingError), color: .green)
-                .frame(width: 64, height: 64)
+            // Background disk
+            Circle()
+                .fill(Color.black.opacity(0.6))
+                .frame(width: 320, height: 320)
+                .shadow(color: .black.opacity(0.4), radius: 12)
+            
+            Circle()
+                .stroke(Color.white.opacity(0.3), lineWidth: 3)
+                .frame(width: 280, height: 280)
+            
+            // Clock face with prominent numbers
+            ClockFaceNumbers()
+            
+            // Arrow hand
+            if let progress = viewModel.progress {
+                ClockArrowHand(
+                    headingError: Double(progress.headingError),
+                    color: progress.clockArrowColor
+                )
+                .frame(width: 240, height: 240)
+            }
+            
+            // Center dot
+            Circle()
+                .fill(Color.white)
+                .frame(width: 20, height: 20)
+                .shadow(color: .black.opacity(0.5), radius: 3)
+            
+            // Instruction text below clock
+            if let progress = viewModel.progress {
+                VStack(spacing: 4) {
+                    Text(progress.clockInstructionText)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.center)
+                    
+                    Text(progress.degreeHelperText)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.8))
+                )
+                .offset(y: 200)
+            }
         }
     }
 }
 
-private struct CompassTicks: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let r = min(rect.width, rect.height) / 2
-        let angles: [CGFloat] = [0, .pi/2, .pi, 3 * .pi/2]
-        for a in angles {
-            let inner = CGPoint(x: center.x + (r - 10) * cos(a),
-                                y: center.y + (r - 10) * sin(a))
-            let outer = CGPoint(x: center.x + r * cos(a),
-                                y: center.y + r * sin(a))
-            p.move(to: inner); p.addLine(to: outer)
-        }
-        return p
-    }
-}
-
-// MARK: - Rounded Chip
-private struct RoundedChip: View {
-    let text: String
+// MARK: - Clock Face with Prominent Numbers
+struct ClockFaceNumbers: View {
     var body: some View {
-        Text(text)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(Color.white.opacity(0.1)))
+        ZStack {
+            Text("12")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(y: -120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+            
+            Text("3")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(x: 120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+            
+            Text("6")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(y: 120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+            
+            Text("9")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+                .offset(x: -120)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+        }
     }
 }
 
-// MARK: - Clock Arrow Hand (unchanged visuals)
+// MARK: - Clock Arrow Hand
 struct ClockArrowHand: View {
     let headingError: Double
     let color: Color
     
     var body: some View {
         ZStack {
+            // Arrow shaft (solid rectangle)
             RoundedRectangle(cornerRadius: 6)
                 .fill(
-                    LinearGradient(colors: [color, color.opacity(0.7)],
-                                   startPoint: .bottom, endPoint: .top)
+                    LinearGradient(
+                        colors: [color, color.opacity(0.7)],
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
                 )
-                .frame(width: 12, height: 48)
-                .offset(y: -12)
-                .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 2)
-            if abs(headingError) < 0.15 {
+                .frame(width: 16, height: 120)
+                .offset(y: -30)
+                .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
+            
+            // Arrow head (triangle) - Indraneel
+            /*
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: -90))
+                path.addLine(to: CGPoint(x: -30, y: -55))
+                path.addLine(to: CGPoint(x: 30, y: -55))
+                path.closeSubpath()
+            }
+            .fill(color)
+            .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
+            */
+             
+            // Glow effect when aligned
+            if abs(headingError) < 0.15 { // ~8.6 degrees
                 Circle()
                     .fill(
-                        RadialGradient(colors: [color.opacity(0.35), .clear],
-                                       center: .center, startRadius: 20, endRadius: 56)
+                        RadialGradient(
+                            colors: [color.opacity(0.4), .clear],
+                            center: .center,
+                            startRadius: 40,
+                            endRadius: 100
+                        )
                     )
-                    .frame(width: 84, height: 84)
+                    .frame(width: 200, height: 200)
             }
         }
         .rotationEffect(.degrees(headingError * 180 / .pi))
@@ -392,7 +447,7 @@ struct ClockArrowHand: View {
     }
 }
 
-// MARK: - Destination Picker (unchanged)
+// MARK: - Destination Picker
 struct DestinationPickerView: View {
     @ObservedObject var viewModel: NavigationViewModel
     @Environment(\.dismiss) private var dismiss
@@ -408,32 +463,47 @@ struct DestinationPickerView: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(beacon.name).font(.headline)
+                            Text(beacon.name)
+                                .font(.headline)
+                            
                             if !beacon.roomId.isEmpty,
                                let room = viewModel.map.room(withId: beacon.roomId) {
-                                Text(room.name).font(.caption).foregroundColor(.secondary)
+                                Text(room.name)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
                         }
+                        
                         Spacer()
-                        Image(systemName: "arrow.right.circle").foregroundColor(.blue)
+                        
+                        Image(systemName: "arrow.right.circle")
+                            .foregroundColor(.blue)
                     }
                 }
             }
             .navigationTitle("Select Destination")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("Cancel") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
     
     private func selectDestination(_ beacon: Beacon) {
         guard let frame = session.currentFrame else { return }
         let currentPosition = CoordinateTransformManager.extractPosition(from: frame.camera)
+        
         viewModel.selectDestination(beacon, currentPosition: currentPosition, session: session)
-        onSelected(); dismiss()
+        onSelected()
+        dismiss()
     }
 }
 
-// MARK: - Calibration Progress View (unchanged)
+// MARK: - Calibration Progress View
 struct CalibrationProgressView: View {
     @ObservedObject var viewModel: CalibrationViewModel
     
@@ -449,20 +519,31 @@ struct CalibrationProgressView: View {
                     Text("Beacon \(index + 1) of \(total)")
                         .font(.title2.bold())
                         .foregroundColor(.white)
+                    
                     if index < viewModel.candidateBeacons.count {
                         Text(viewModel.candidateBeacons[index].beacon.name)
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.8))
                     }
-                    ProgressView(value: viewModel.currentAlignment).tint(.green).frame(height: 8)
+                    
+                    ProgressView(value: viewModel.currentAlignment)
+                        .tint(.green)
+                        .frame(height: 8)
+                    
                     Text("Alignment: \(Int(viewModel.currentAlignment * 100))%")
-                        .font(.caption).foregroundColor(.white.opacity(0.8))
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                    
                     Button {
-                        Task { await viewModel.confirmBeaconMeasurement() }
+                        Task {
+                            await viewModel.confirmBeaconMeasurement()
+                        }
                     } label: {
                         Text("Confirm")
-                            .font(.headline).foregroundColor(.white)
-                            .frame(maxWidth: .infinity).padding()
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
                             .background(viewModel.canConfirmMeasurement ? Color.green : Color.gray)
                             .cornerRadius(12)
                     }
@@ -473,17 +554,28 @@ struct CalibrationProgressView: View {
                     let icon = calibration.qualityRating == .excellent ? "✅" :
                               calibration.qualityRating == .good ? "✅" :
                               calibration.qualityRating == .fair ? "⚠️" : "❌"
+                    
                     Text("\(icon) Calibration Complete")
                         .font(.title2.bold())
                         .foregroundColor(calibration.qualityRating == .poor ? .orange : .green)
-                    Text("Quality: \(calibration.qualityRating.rawValue)").font(.caption).foregroundColor(.white)
-                    Text("Confidence: \(Int(calibration.confidence * 100))%").font(.caption).foregroundColor(.white)
+                    
+                    Text("Quality: \(calibration.qualityRating.rawValue)")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                    
+                    Text("Confidence: \(Int(calibration.confidence * 100))%")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                    
                     Text("Consistency: \(String(format: "%.1f", 100 - calibration.residualError))%")
                         .font(.caption)
                         .foregroundColor(calibration.residualError > 20 ? .orange : .white.opacity(0.8))
+                    
                     if calibration.confidence < 0.6 {
                         Text("Consider recalibrating for better accuracy")
-                            .font(.caption2).foregroundColor(.orange).multilineTextAlignment(.center)
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                            .multilineTextAlignment(.center)
                     }
                 }
             }

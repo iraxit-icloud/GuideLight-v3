@@ -25,6 +25,10 @@ struct SettingsView: View {
     @AppStorage("voiceLocale") private var voiceLocale: String = AVSpeechSynthesisVoice.currentLanguageCode()
     @AppStorage("voiceIdentifier") private var voiceIdentifier: String = "" // empty = system default by language
 
+    // 🔧 New: Navigation preferences for steps & speed
+    @AppStorage("stepsPerMeter") private var stepsPerMeter: Double = 1.35     // typical 1.3–1.5
+    @AppStorage("walkingSpeedMps") private var walkingSpeedMps: Double = 1.20 // indoor pace ~1.0–1.4
+
     var body: some View {
         NavigationView {
             Form {
@@ -125,6 +129,45 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text("Accessibility & Voice")
+                }
+
+                // =========================
+                // MARK: Navigation Preferences (NEW)
+                // =========================
+                Section {
+                    // Steps per meter
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Steps per meter", systemImage: "figure.walk")
+                            Spacer()
+                            Text(String(format: "%.2f", stepsPerMeter))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $stepsPerMeter, in: 0.80...2.50, step: 0.05)
+                        Text("Typical adult stride ≈ 1.3–1.5 steps/m")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Walking speed (m/s)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Walking speed", systemImage: "speedometer")
+                            Spacer()
+                            Text(String(format: "%.2f m/s", walkingSpeedMps))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $walkingSpeedMps, in: 0.40...2.00, step: 0.05)
+                        Text("Indoor pace: ~1.0–1.4 m/s")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("Navigation Preferences")
+                } footer: {
+                    Text("These settings affect the navigation dock: distance is shown in steps, and time is calculated from your walking speed.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
 
                 // =========================
