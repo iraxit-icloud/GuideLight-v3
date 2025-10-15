@@ -235,7 +235,7 @@ struct PathNavigationLauncherView: View {
             return
         }
         
-        guard let arWorldMapFileName = selectedMap.arWorldMapFileName else {
+        guard let _ = selectedMap.arWorldMapFileName else {
             errorMessage = "ARWorldMap file reference missing."
             showingError = true
             return

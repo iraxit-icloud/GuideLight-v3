@@ -44,6 +44,7 @@
 			membershipExceptions = (
 				BuildMap/Models/JSONMapManager.swift.backup,
 				NavigationSystem/Views/NavigationMainView.swift.backup,
+				Utilities/ARVisualizationHelpers.swift.backup,
 			);
 			target = 8F4678F32E7FB3E4009D770A /* GuideLight v3 */;
 		};

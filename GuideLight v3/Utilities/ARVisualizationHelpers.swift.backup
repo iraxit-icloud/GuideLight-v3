@@ -2,14 +2,6 @@
 //  ARVisualizationHelpers.swift
 //  GuideLight v3
 //
-//  Created by Indraneel Rakshit on 10/14/25.
-//
-
-
-//
-//  ARVisualizationHelpers.swift
-//  GuideLight v3
-//
 //  Created by Indraneel Rakshit on 10/12/25.
 //
 
@@ -17,7 +9,6 @@
 import Foundation
 import ARKit
 import SceneKit
-import UIKit
 
 // MARK: - AR Visualization Helpers
 class ARVisualizationHelpers {
@@ -44,15 +35,15 @@ class ARVisualizationHelpers {
         let pulse = SCNAction.sequence([scaleUp, scaleDown])
         sphereNode.runAction(SCNAction.repeatForever(pulse))
         
-        // 2. Vertical line to floor (always downward)
-        let h = abs(beacon.position.y)
-        let line = SCNCylinder(radius: 0.01, height: CGFloat(max(0.05, h)))
+        // 2. Vertical line to floor (helps with depth perception)
+        let lineHeight = beacon.position.y
+        let line = SCNCylinder(radius: 0.01, height: CGFloat(abs(lineHeight)))
         line.firstMaterial?.diffuse.contents = UIColor.cyan.withAlphaComponent(0.5)
         let lineNode = SCNNode(geometry: line)
-        lineNode.position = SCNVector3(0, -Float(line.height) / 2.0, 0)
+        lineNode.position = SCNVector3(0, -lineHeight / 2, 0)
         node.addChildNode(lineNode)
         
-        // 3. Text label (billboard to camera)
+        // 3. Text label
         let textGeometry = SCNText(string: beacon.name, extrusionDepth: 0.01)
         textGeometry.font = UIFont.boldSystemFont(ofSize: 0.08)
         textGeometry.firstMaterial?.diffuse.contents = UIColor.white
@@ -64,7 +55,6 @@ class ARVisualizationHelpers {
         let textWidth = max.x - min.x
         textNode.position = SCNVector3(-textWidth / 2, 0.15, 0)
         textNode.scale = SCNVector3(0.01, 0.01, 0.01)
-        textNode.constraints = [SCNBillboardConstraint()]     // 🔧 always face camera
         
         node.addChildNode(textNode)
         
@@ -76,7 +66,6 @@ class ARVisualizationHelpers {
         distanceNode.position = SCNVector3(-0.05, 0.22, 0)
         distanceNode.scale = SCNVector3(0.01, 0.01, 0.01)
         distanceNode.name = "distanceLabel"
-        distanceNode.constraints = [SCNBillboardConstraint()] // 🔧 face camera
         node.addChildNode(distanceNode)
         
         // Set position
@@ -123,15 +112,15 @@ class ARVisualizationHelpers {
             sphereNode.runAction(SCNAction.repeatForever(pulse))
         }
         
-        // Vertical line (always downward)
-        let h = abs(waypoint.position.y)
-        let line = SCNCylinder(radius: 0.01, height: CGFloat(max(0.05, h)))
+        // Vertical line
+        let lineHeight = waypoint.position.y
+        let line = SCNCylinder(radius: 0.01, height: CGFloat(abs(lineHeight)))
         line.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.5)
         let lineNode = SCNNode(geometry: line)
-        lineNode.position = SCNVector3(0, -Float(line.height) / 2.0, 0)
+        lineNode.position = SCNVector3(0, -lineHeight / 2, 0)
         node.addChildNode(lineNode)
         
-        // Text label (billboard)
+        // Text label
         if isNext {
             let textGeometry = SCNText(string: waypoint.name, extrusionDepth: 0.01)
             textGeometry.font = UIFont.boldSystemFont(ofSize: 0.1)
@@ -142,7 +131,6 @@ class ARVisualizationHelpers {
             let textWidth = max.x - min.x
             textNode.position = SCNVector3(-textWidth / 2, 0.2, 0)
             textNode.scale = SCNVector3(0.01, 0.01, 0.01)
-            textNode.constraints = [SCNBillboardConstraint()]  // 🔧 always face camera
             
             node.addChildNode(textNode)
         }
@@ -154,39 +142,102 @@ class ARVisualizationHelpers {
     
     // MARK: - Crosshair Alignment
     
+    /// Calculate how well the crosshair is aligned with a target node
+    /// - Returns: Alignment value from 0.0 (poor) to 1.0 (perfect)
     static func calculateCrosshairAlignment(to targetNode: SCNNode, in sceneView: ARSCNView) -> Float {
+        // Project 3D node position to 2D screen coordinates
         let screenPosition = sceneView.projectPoint(targetNode.position)
-        let screenCenter = CGPoint(x: sceneView.bounds.width / 2, y: sceneView.bounds.height / 2)
+        
+        // Get screen center (crosshair position)
+        let screenCenter = CGPoint(
+            x: sceneView.bounds.width / 2,
+            y: sceneView.bounds.height / 2
+        )
+        
+        // Calculate pixel distance
         let dx = screenPosition.x - Float(screenCenter.x)
         let dy = screenPosition.y - Float(screenCenter.y)
         let pixelDistance = sqrt(dx * dx + dy * dy)
+        
+        // Convert to alignment percentage
+        // Perfect alignment (< 30 pixels) = 1.0
+        // Poor alignment (> 150 pixels) = 0.0
         let maxDistance: Float = 150.0
         let minDistance: Float = 30.0
-        if pixelDistance < minDistance { return 1.0 }
-        if pixelDistance > maxDistance { return 0.0 }
-        return 1.0 - ((pixelDistance - minDistance) / (maxDistance - minDistance))
+        
+        if pixelDistance < minDistance {
+            return 1.0
+        } else if pixelDistance > maxDistance {
+            return 0.0
+        } else {
+            return 1.0 - ((pixelDistance - minDistance) / (maxDistance - minDistance))
+        }
     }
     
+    /// Update marker appearance based on alignment
     static func updateMarkerAlignment(node: SCNNode, alignment: Float) {
         guard let sphereNode = node.childNodes.first,
-              let sphere = sphereNode.geometry as? SCNSphere else { return }
-        let color: UIColor = alignment > 0.85 ? .green : (alignment > 0.6 ? .yellow : .cyan)
+              let sphere = sphereNode.geometry as? SCNSphere else {
+            return
+        }
+        
+        // Change color based on alignment
+        let color: UIColor
+        if alignment > 0.85 {
+            color = .green  // Well aligned
+        } else if alignment > 0.6 {
+            color = .yellow  // Moderately aligned
+        } else {
+            color = .cyan  // Poorly aligned
+        }
+        
         sphere.firstMaterial?.diffuse.contents = color
         sphere.firstMaterial?.emission.contents = color
     }
     
     // MARK: - Distance Update
     
+    /// Update distance label on a beacon marker
     static func updateDistanceLabel(on node: SCNNode, distance: Float) {
         guard let distanceNode = node.childNode(withName: "distanceLabel", recursively: true),
-              let textGeometry = distanceNode.geometry as? SCNText else { return }
+              let textGeometry = distanceNode.geometry as? SCNText else {
+            return
+        }
+        
         let distanceString = String(format: "%.1fm", distance)
         textGeometry.string = distanceString
     }
     
-    // MARK: - Billboard Effect helper (legacy)
+    // MARK: - Billboard Effect
+    
+    /// Make node always face the camera (billboard effect)
     static func makeBillboard(node: SCNNode, camera: SCNNode) {
         node.constraints = [SCNBillboardConstraint()]
+    }
+}
+
+// === Breadcrumbs ===
+
+import SceneKit
+import UIKit
+
+// Keeps your existing helpers above…
+
+// Make beacon labels face camera (prevents “inverted” look)
+extension ARVisualizationHelpers {
+    static func applyBillboard(to node: SCNNode) {
+        let c = SCNBillboardConstraint()
+        c.freeAxes = .Y
+        node.constraints = [c]
+    }
+}
+
+// Patch: make the waypoint name label billboard (call from factory)
+extension ARVisualizationHelpers {
+    static func makeWaypointNameBillboard(_ textNode: SCNNode) {
+        let c = SCNBillboardConstraint()
+        c.freeAxes = .Y
+        textNode.constraints = [c]
     }
 }
 
@@ -283,3 +334,4 @@ enum BreadcrumbArrowFactory {
         return node
     }
 }
+

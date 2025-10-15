@@ -25,9 +25,19 @@ struct SettingsView: View {
     @AppStorage("voiceLocale") private var voiceLocale: String = AVSpeechSynthesisVoice.currentLanguageCode()
     @AppStorage("voiceIdentifier") private var voiceIdentifier: String = "" // empty = system default by language
 
-    // 🔧 New: Navigation preferences for steps & speed
+    // Navigation preferences used by the dock
     @AppStorage("stepsPerMeter") private var stepsPerMeter: Double = 1.35     // typical 1.3–1.5
     @AppStorage("walkingSpeedMps") private var walkingSpeedMps: Double = 1.20 // indoor pace ~1.0–1.4
+
+    // NEW: Breadcrumbs preferences
+    @AppStorage("breadcrumbsEnabled") private var breadcrumbsEnabled: Bool = true
+    @AppStorage("breadcrumbsTrailLengthM") private var breadcrumbsTrailLengthM: Double = 8.0
+    @AppStorage("breadcrumbsSpacingM") private var breadcrumbsSpacingM: Double = 0.8
+    @AppStorage("breadcrumbsGlowEnabled") private var breadcrumbsGlowEnabled: Bool = true
+    @AppStorage("breadcrumbsPulseSeconds") private var breadcrumbsPulseSeconds: Double = 1.8
+    @AppStorage("breadcrumbsColorScheme") private var breadcrumbsColorScheme: String = "Green"
+
+    private let colorSchemes = ["Green","Cyan","Yellow","Magenta","White","Orange","Blue"]
 
     var body: some View {
         NavigationView {
@@ -40,10 +50,9 @@ struct SettingsView: View {
                     Toggle(isOn: $voiceEnabled) {
                         Label("Voice Guidance", systemImage: "waveform")
                     }
-                    .onChange(of: voiceEnabled) { newValue in
-                        voice.setEnabled(newValue)
-                        if newValue { voice.speak("Voice guidance enabled.") }
-                        else { voice.stop() }
+                    .onChange(of: voiceEnabled) { old, new in
+                        voice.setEnabled(new)
+                        if new { voice.speak("Voice guidance enabled.") } else { voice.stop() }
                     }
 
                     if voiceEnabled {
@@ -53,8 +62,8 @@ struct SettingsView: View {
                                 Text(option.display).tag(option.id) // tag type = String
                             }
                         }
-                        .onChange(of: voiceIdentifier) { newValue in
-                            voice.setVoiceIdentifier(newValue)
+                        .onChange(of: voiceIdentifier) { old, new in
+                            voice.setVoiceIdentifier(new)
                             voice.speak("Voice changed.")
                         }
 
@@ -65,8 +74,8 @@ struct SettingsView: View {
                                 Text(code).tag(code) // tag type = String
                             }
                         }
-                        .onChange(of: voiceLocale) { newValue in
-                            voice.setLocale(newValue)
+                        .onChange(of: voiceLocale) { old, new in
+                            voice.setLocale(new)
                             if voiceIdentifier.isEmpty { voice.speak("Language changed.") }
                         }
 
@@ -85,8 +94,8 @@ struct SettingsView: View {
                             } maximumValueLabel: {
                                 Text("Fast")
                             }
-                            .onChange(of: voiceRate) { newValue in
-                                voice.setRate(newValue)
+                            .onChange(of: voiceRate) { old, new in
+                                voice.setRate(new)
                                 voice.speak("Speech speed adjusted.")
                             }
                         }
@@ -106,8 +115,8 @@ struct SettingsView: View {
                             } maximumValueLabel: {
                                 Text("Higher")
                             }
-                            .onChange(of: voicePitch) { newValue in
-                                voice.setPitch(newValue)
+                            .onChange(of: voicePitch) { old, new in
+                                voice.setPitch(new)
                                 voice.speak("Pitch adjusted.")
                             }
                         }
@@ -132,7 +141,7 @@ struct SettingsView: View {
                 }
 
                 // =========================
-                // MARK: Navigation Preferences (NEW)
+                // MARK: Navigation Preferences (Dock)
                 // =========================
                 Section {
                     // Steps per meter
@@ -166,6 +175,59 @@ struct SettingsView: View {
                     Text("Navigation Preferences")
                 } footer: {
                     Text("These settings affect the navigation dock: distance is shown in steps, and time is calculated from your walking speed.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // =========================
+                // MARK: Breadcrumbs (NEW)
+                // =========================
+                Section {
+                    Toggle(isOn: $breadcrumbsEnabled) {
+                        Label("Show breadcrumbs", systemImage: "point.topleft.down.curvedto.point.bottomright.up")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Trail length")
+                            Spacer()
+                            Text(String(format: "%.1f m", breadcrumbsTrailLengthM))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $breadcrumbsTrailLengthM, in: 3.0...20.0, step: 0.5)
+
+                        HStack {
+                            Text("Spacing")
+                            Spacer()
+                            Text(String(format: "%.2f m", breadcrumbsSpacingM))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $breadcrumbsSpacingM, in: 0.3...2.0, step: 0.05)
+                    }
+
+                    Toggle(isOn: $breadcrumbsGlowEnabled) {
+                        Label("Glow", systemImage: "sparkles")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Pulse speed")
+                            Spacer()
+                            Text(String(format: "%.1f s", breadcrumbsPulseSeconds))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $breadcrumbsPulseSeconds, in: 0.6...3.0, step: 0.1)
+                    }
+
+                    Picker("Color scheme", selection: $breadcrumbsColorScheme) {
+                        ForEach(colorSchemes, id: \.self) { name in
+                            Text(name).tag(name)
+                        }
+                    }
+                } header: {
+                    Text("Breadcrumbs")
+                } footer: {
+                    Text("Small glowing arrows on the floor show the path ahead. Density increases near turns; the trail fades on arrival.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

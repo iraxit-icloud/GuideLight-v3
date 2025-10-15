@@ -2,356 +2,306 @@
 //  NavigationARView.swift
 //  GuideLight v3
 //
-//  Final-destination pluck + yellow recolor + sparkle burst (one-shot, robust)
+//  Breadcrumbs + Waypoint Markers (next + final).
+//  Swift 6–safe + fixed arrow orientation (stay flat on floor).
 //
 
 import SwiftUI
 import ARKit
 import SceneKit
 
-// MARK: - Navigation AR View Container
 struct NavigationARView: UIViewRepresentable {
     @ObservedObject var viewModel: NavigationViewModel
     let session: ARSession
-    
+
     func makeUIView(context: Context) -> ARSCNView {
-        let arView = ARSCNView()
-        arView.delegate = context.coordinator
-        arView.session = session
-        arView.scene = SCNScene()
-        
-        arView.autoenablesDefaultLighting = true
-        arView.automaticallyUpdatesLighting = true
-        
-        // Ensure we are running a configuration
-        if session.configuration == nil {
-            let configuration = ARWorldTrackingConfiguration()
-            configuration.planeDetection = [.horizontal]
-            session.run(configuration)
-        }
-        
-        return arView
+        let view = ARSCNView(frame: .zero)
+        view.automaticallyUpdatesLighting = true
+        view.autoenablesDefaultLighting = false
+        view.antialiasingMode = .multisampling4X
+        view.scene = SCNScene()
+        view.session = session
+        view.delegate = context.coordinator
+
+        // 🔹 Soft gray veil to improve contrast
+        let veil = UIView(frame: .zero)
+        veil.backgroundColor = UIColor.black.withAlphaComponent(0.24)
+        veil.isUserInteractionEnabled = false
+        veil.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(veil)
+        NSLayoutConstraint.activate([
+            veil.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            veil.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            veil.topAnchor.constraint(equalTo: view.topAnchor),
+            veil.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        // Roots
+        let breadcrumbsRoot = SCNNode()
+        breadcrumbsRoot.name = "breadcrumbsRoot"
+        view.scene.rootNode.addChildNode(breadcrumbsRoot)
+
+        let waypointsRoot = SCNNode()
+        waypointsRoot.name = "waypointsRoot"
+        view.scene.rootNode.addChildNode(waypointsRoot)
+
+        context.coordinator.sceneView = view
+        context.coordinator.breadcrumbsRoot = breadcrumbsRoot
+        context.coordinator.waypointsRoot = waypointsRoot
+
+        context.coordinator.startBreadcrumbsTimer(viewModel: viewModel)
+        context.coordinator.refreshWaypointMarkers(viewModel: viewModel)
+        return view
     }
-    
+
     func updateUIView(_ uiView: ARSCNView, context: Context) {
-        context.coordinator.updateWaypointMarkers(in: uiView)
+        context.coordinator.handleStateChanges(viewModel: viewModel)
+        context.coordinator.refreshWaypointMarkersIfNeeded(viewModel: viewModel)
     }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(viewModel: viewModel)
-    }
-    
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     // MARK: - Coordinator
-    class Coordinator: NSObject, ARSCNViewDelegate {
-        let viewModel: NavigationViewModel
-        
-        private var currentWaypointNode: SCNNode?
-        private var destinationNode: SCNNode?
-        
+
+    @MainActor
+    final class Coordinator: NSObject, ARSCNViewDelegate {
+        weak var sceneView: ARSCNView?
+        var breadcrumbsRoot: SCNNode?
+        var waypointsRoot: SCNNode?
+
+        private var breadcrumbsTimer: Timer?
         private var lastUpdateTime: TimeInterval = 0
-        private var didPlayArrivalEffect = false  // ✅ one-shot
-        
-        init(viewModel: NavigationViewModel) {
-            self.viewModel = viewModel
+        private var lastCameraPos: simd_float3?
+        private var lastCameraYaw: Float = 0
+        private var lastWaypointIndex: Int = -1
+        private var lastMarkersIndex: Int = -1
+
+        private let minMoveForUpdate: Float = 0.25
+        private let minYawForUpdate:  Float = .pi/18
+
+        deinit { breadcrumbsTimer?.invalidate() }
+
+        func startBreadcrumbsTimer(viewModel: NavigationViewModel) {
+            breadcrumbsTimer?.invalidate()
+            breadcrumbsTimer = Timer.scheduledTimer(withTimeInterval: 0.30, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                // 🔧 Ensure we hop onto the MainActor before calling an actor-isolated method.
+                Task { @MainActor in
+                    self.updateIfNeeded(viewModel: viewModel)
+                }
+            }
         }
-        
-        // MARK: - Public: Update Markers
-        func updateWaypointMarkers(in sceneView: ARSCNView) {
-            DispatchQueue.main.async {
-                
-                // === Handle final ARRIVED first (so guard below doesn't remove nodes prematurely) ===
-                if case .arrived = self.viewModel.navigationState {
-                    // Reset separate destination node (we're done navigating)
-                    self.destinationNode?.removeFromParentNode()
-                    self.destinationNode = nil
-                    
-                    // Try to use the last waypoint node; if missing, create a temp node at destination
-                    var hostNode = self.currentWaypointNode
-                    if hostNode == nil, let dest = self.viewModel.destinationBeacon {
-                        let temp = SCNNode()
-                        temp.position = SCNVector3(dest.position.x, dest.position.y, dest.position.z)
-                        sceneView.scene.rootNode.addChildNode(temp)
-                        self.currentWaypointNode = temp
-                        hostNode = temp
+
+        func handleStateChanges(viewModel: NavigationViewModel) {
+            if case .arrived = viewModel.navigationState {
+                fadeOutBreadcrumbs()
+                clearWaypointMarkers()
+            }
+            if viewModel.showArrivalMessage {
+                bloomLastBreadcrumbs()
+            }
+        }
+
+        func refreshWaypointMarkersIfNeeded(viewModel: NavigationViewModel) {
+            if viewModel.currentWaypointIndex != lastMarkersIndex {
+                refreshWaypointMarkers(viewModel: viewModel)
+            }
+        }
+
+        private func getSettings() -> (enabled: Bool, lengthM: Float, spacingM: Float, glow: Bool, pulse: Double, color: UIColor) {
+            let ud = UserDefaults.standard
+            let enabled = ud.object(forKey: "breadcrumbsEnabled") as? Bool ?? true
+            let lengthM = Float(ud.double(forKey: "breadcrumbsTrailLengthM").nonZeroOr(8.0))
+            let spacingM = Float(ud.double(forKey: "breadcrumbsSpacingM").nonZeroOr(0.8))
+            let glow     = ud.object(forKey: "breadcrumbsGlowEnabled") as? Bool ?? true
+            let pulse    = ud.double(forKey: "breadcrumbsPulseSeconds").nonZeroOr(1.8)
+            let scheme   = ud.string(forKey: "breadcrumbsColorScheme") ?? "Cyan"
+            let color    = BreadcrumbsColorFactory.uiColor(from: scheme)
+            return (enabled, max(1.0, lengthM), max(0.1, spacingM), glow, max(0.1, pulse), color)
+        }
+
+        // MARK: - Breadcrumbs update
+
+        private func updateIfNeeded(viewModel: NavigationViewModel) {
+            guard let sceneView = sceneView else { return }
+            let settings = getSettings()
+            guard settings.enabled else { clearBreadcrumbs(); return }
+
+            guard case .navigating = viewModel.navigationState,
+                  let frame = sceneView.session.currentFrame,
+                  let path = viewModel.currentPath else {
+                clearBreadcrumbs(); return
+            }
+
+            let camTransform = frame.camera.transform
+            let camPos = simd_float3(camTransform.columns.3.x,
+                                     camTransform.columns.3.y,
+                                     camTransform.columns.3.z)
+
+            let forward = frame.camera.transform.columns.2
+            let cameraYaw = atan2(-forward.x, -forward.z)
+
+            let movedEnough = (lastCameraPos == nil) || simd_distance(lastCameraPos!, camPos) > minMoveForUpdate
+            let turnedEnough = abs(cameraYaw - lastCameraYaw) > minYawForUpdate
+            let waypointChanged = (viewModel.currentWaypointIndex != lastWaypointIndex)
+
+            let now = CACurrentMediaTime()
+            let timeOk = now - lastUpdateTime > 0.25
+            guard movedEnough || turnedEnough || waypointChanged || timeOk else { return }
+
+            let samples = sampleAhead(from: camPos,
+                                      path: path,
+                                      startIndex: viewModel.currentWaypointIndex,
+                                      spacing: settings.spacingM,
+                                      maxDistance: settings.lengthM)
+
+            renderBreadcrumbs(samplesWorld: samples, color: settings.color, glow: settings.glow, pulse: settings.pulse)
+
+            lastCameraPos = camPos
+            lastCameraYaw = cameraYaw
+            lastWaypointIndex = viewModel.currentWaypointIndex
+            lastUpdateTime = now
+        }
+
+        private func sampleAhead(from cameraPos: simd_float3,
+                                 path: NavigationPath,
+                                 startIndex: Int,
+                                 spacing: Float,
+                                 maxDistance: Float) -> [simd_float3] {
+
+            var controlPoints: [simd_float3] = [cameraPos]
+            let wps = path.waypoints
+            guard startIndex < wps.count else { return [] }
+            controlPoints.append(wps[startIndex].position)
+            if startIndex + 1 < wps.count {
+                for i in (startIndex+1)..<wps.count { controlPoints.append(wps[i].position) }
+            }
+
+            var out: [simd_float3] = []
+            var accum: Float = 0.0
+            var remaining = maxDistance
+
+            for i in 0..<(controlPoints.count - 1) {
+                var a = controlPoints[i]
+                let b = controlPoints[i+1]
+                a.y = min(a.y, b.y) + 0.01
+
+                let seg = b - a
+                let segLen = simd_length(seg)
+                if segLen <= 0.001 { continue }
+
+                var dist: Float = (spacing - accum)
+                if out.isEmpty { dist = 0 }
+
+                while dist <= segLen && remaining > 0 {
+                    let t = dist / segLen
+                    var p = a + t * seg
+                    p.y = min(a.y, b.y) + 0.015
+                    out.append(p)
+                    dist += spacing
+                    remaining -= spacing
+                }
+                let leftover = segLen - ((dist - spacing))
+                accum = max(0, spacing - leftover)
+                if remaining <= 0 { break }
+            }
+
+            // denser near turns
+            var dense: [simd_float3] = []
+            for i in 0..<out.count {
+                dense.append(out[i])
+                if i+2 < out.count {
+                    let v1 = simd_normalize(out[i+1] - out[i])
+                    let v2 = simd_normalize(out[i+2] - out[i+1])
+                    if simd_dot(v1, v2) < 0.75 {
+                        let mid = (out[i+1] + out[i+2]) * 0.5
+                        dense.append(simd_float3(mid.x, mid.y + 0.003, mid.z))
                     }
-                    
-                    // Run the one-shot effect if we haven’t yet
-                    if !self.didPlayArrivalEffect, let node = hostNode {
-                        self.didPlayArrivalEffect = true
-                        self.runArrivalEffects(on: node)
-                        
-                        // Remove marker a bit later to leave time for the effect
-                        let wait = SCNAction.wait(duration: 1.2)
-                        let remove = SCNAction.run { _ in
-                            node.removeFromParentNode()
-                            self.currentWaypointNode = nil
-                        }
-                        node.runAction(SCNAction.sequence([wait, remove]))
-                    }
-                    
-                    // Nothing else to update once arrived
-                    return
-                } else {
-                    // Reset flag when not in arrived state
-                    self.didPlayArrivalEffect = false
-                }
-                
-                // === Normal update path (not arrived) ===
-                guard let currentWaypoint = self.viewModel.currentWaypoint else {
-                    // No current waypoint while not arrived: clear markers
-                    self.currentWaypointNode?.removeFromParentNode()
-                    self.currentWaypointNode = nil
-                    self.destinationNode?.removeFromParentNode()
-                    self.destinationNode = nil
-                    return
-                }
-                
-                // --- Update/Place Current Waypoint Node ---
-                let wpTargetPos = SCNVector3(currentWaypoint.position.x,
-                                             currentWaypoint.position.y,
-                                             currentWaypoint.position.z)
-                
-                if self.currentWaypointNode == nil ||
-                    !self.isSamePosition(self.currentWaypointNode!, wpTargetPos) {
-                    self.currentWaypointNode?.removeFromParentNode()
-                    let node = self.createWaypointMarker(for: currentWaypoint)
-                    sceneView.scene.rootNode.addChildNode(node)
-                    self.currentWaypointNode = node
-                }
-                
-                // --- Destination Node (only show when not yet at final waypoint) ---
-                if let path = self.viewModel.currentPath,
-                   self.viewModel.currentWaypointIndex < path.waypoints.count - 1,
-                   let dest = self.viewModel.destinationBeacon {
-                    
-                    if self.destinationNode == nil {
-                        let node = self.createDestinationMarker(for: dest)
-                        sceneView.scene.rootNode.addChildNode(node)
-                        self.destinationNode = node
-                    }
-                } else {
-                    // At final waypoint: remove separate destination marker
-                    self.destinationNode?.removeFromParentNode()
-                    self.destinationNode = nil
                 }
             }
+            return dense
         }
-        
-        // MARK: - Run Arrival FX (pluck + recolor + sparkle)
-        private func runArrivalEffects(on node: SCNNode) {
-            // Recolor any sphere child to yellow
-            if let sphereNode = node.childNodes.first(where: { $0.geometry is SCNSphere }),
-               let sphere = sphereNode.geometry as? SCNSphere {
-                let done = UIColor.systemYellow
-                sphere.firstMaterial?.diffuse.contents = done
-                sphere.firstMaterial?.emission.contents = done
+
+        // MARK: - Rendering
+
+        private func renderBreadcrumbs(samplesWorld: [simd_float3], color: UIColor, glow: Bool, pulse: Double) {
+            guard let root = breadcrumbsRoot else { return }
+
+            let proto = BreadcrumbArrowFactory.makeBreadcrumbArrowNode(color: color, glow: glow, pulseSeconds: pulse, scale: 1.0)
+
+            let existing = root.childNodes
+            let needed = samplesWorld.count
+            if existing.count < needed {
+                for _ in existing.count..<needed { root.addChildNode(proto.clone()) }
+            } else if existing.count > needed {
+                for i in stride(from: existing.count - 1, through: needed, by: -1) { existing[i].removeFromParentNode() }
             }
-            
-            // Pluck (scale pop)
-            let popUp = SCNAction.scale(to: 1.5, duration: 0.18)
-            popUp.timingMode = .easeOut
-            let settle = SCNAction.scale(to: 1.0, duration: 0.22)
-            settle.timingMode = .easeInEaseOut
-            node.runAction(SCNAction.sequence([popUp, settle]))
-            
-            // ✨ Sparkle burst
-            let sparkle = makeSparkleEmitter(color: .systemYellow)
-            // Try to place near the top sphere if any, else slightly above origin
-            if let top = node.childNodes.first(where: { $0.geometry is SCNSphere }) {
-                sparkle.position = top.position
-            } else {
-                sparkle.position = SCNVector3(0, 0.7, 0)
-            }
-            node.addChildNode(sparkle)
-            
-            // Auto-remove the emitter after it finishes
-            let wait = SCNAction.wait(duration: 1.0)
-            let remove = SCNAction.run { _ in sparkle.removeFromParentNode() }
-            sparkle.runAction(SCNAction.sequence([wait, remove]))
-        }
-        
-        // MARK: - Helpers
-        
-        /// Position comparison with a small tolerance to avoid SCNVector3 Equatable issues
-        private func isSamePosition(_ node: SCNNode, _ pos: SCNVector3, tol: Float = 0.001) -> Bool {
-            let dx = node.position.x - pos.x
-            let dy = node.position.y - pos.y
-            let dz = node.position.z - pos.z
-            return (dx*dx + dy*dy + dz*dz) <= (tol * tol)
-        }
-        
-        /// Create visual marker for current waypoint (bright, prominent)
-        private func createWaypointMarker(for waypoint: NavigationWaypoint) -> SCNNode {
-            let node = SCNNode()
-            node.position = SCNVector3(waypoint.position.x, waypoint.position.y, waypoint.position.z)
-            
-            // Color based on waypoint type
-            let color: UIColor
-            switch waypoint.type {
-            case .doorway:
-                color = .systemOrange
-            case .destination:
-                color = .systemGreen
-            default:
-                color = .systemBlue
-            }
-            
-            // Pole
-            let poleGeometry = SCNCylinder(radius: 0.03, height: 0.6)
-            poleGeometry.firstMaterial?.diffuse.contents = color
-            let poleNode = SCNNode(geometry: poleGeometry)
-            poleNode.position = SCNVector3(0, 0.3, 0)
-            node.addChildNode(poleNode)
-            
-            // Glowing sphere at top
-            let sphereGeometry = SCNSphere(radius: 0.15)
-            sphereGeometry.firstMaterial?.diffuse.contents = color
-            sphereGeometry.firstMaterial?.emission.contents = color
-            let sphereNode = SCNNode(geometry: sphereGeometry)
-            sphereNode.position = SCNVector3(0, 0.7, 0)
-            node.addChildNode(sphereNode)
-            
-            // Pulse animation
-            let scaleUp = SCNAction.scale(to: 1.3, duration: 0.8)
-            scaleUp.timingMode = .easeInEaseOut
-            let scaleDown = SCNAction.scale(to: 1.0, duration: 0.8)
-            scaleDown.timingMode = .easeInEaseOut
-            let pulse = SCNAction.sequence([scaleUp, scaleDown])
-            sphereNode.runAction(SCNAction.repeatForever(pulse))
-            
-            // Label (waypoint name)
-            let textNode = makeTextNode(string: waypoint.name,
-                                        fontSize: 0.12,
-                                        color: .white,
-                                        emission: UIColor.white.withAlphaComponent(0.5))
-            textNode.position = SCNVector3(-0.15, 0.9, 0)
-            textNode.scale = SCNVector3(0.01, 0.01, 0.01)
-            node.addChildNode(textNode)
-            
-            // "NEXT" badge
-            let badgeNode = makeTextNode(string: "NEXT",
-                                         fontSize: 0.10,
-                                         color: .yellow,
-                                         emission: .yellow)
-            badgeNode.position = SCNVector3(-0.1, 1.1, 0)
-            badgeNode.scale = SCNVector3(0.01, 0.01, 0.01)
-            node.addChildNode(badgeNode)
-            
-            return node
-        }
-        
-        /// Create visual marker for final destination (subtle, background)
-        private func createDestinationMarker(for beacon: Beacon) -> SCNNode {
-            let node = SCNNode()
-            node.position = SCNVector3(beacon.position.x, beacon.position.y, beacon.position.z)
-            
-            // Subtle pole
-            let poleGeometry = SCNCylinder(radius: 0.02, height: 0.4)
-            poleGeometry.firstMaterial?.diffuse.contents = UIColor.systemGreen.withAlphaComponent(0.4)
-            let poleNode = SCNNode(geometry: poleGeometry)
-            poleNode.position = SCNVector3(0, 0.2, 0)
-            node.addChildNode(poleNode)
-            
-            // Small sphere at top
-            let sphereGeometry = SCNSphere(radius: 0.08)
-            sphereGeometry.firstMaterial?.diffuse.contents = UIColor.systemGreen.withAlphaComponent(0.4)
-            sphereGeometry.firstMaterial?.emission.contents = UIColor.systemGreen.withAlphaComponent(0.3)
-            let sphereNode = SCNNode(geometry: sphereGeometry)
-            sphereNode.position = SCNVector3(0, 0.45, 0)
-            node.addChildNode(sphereNode)
-            
-            // Label
-            let textNode = makeTextNode(string: beacon.name,
-                                        fontSize: 0.08,
-                                        color: UIColor.white.withAlphaComponent(0.5),
-                                        emission: UIColor.white.withAlphaComponent(0.0))
-            textNode.position = SCNVector3(-0.1, 0.55, 0)
-            textNode.scale = SCNVector3(0.01, 0.01, 0.01)
-            node.addChildNode(textNode)
-            
-            return node
-        }
-        
-        // MARK: - Text Helper
-        private func makeTextNode(string: String,
-                                  fontSize: CGFloat,
-                                  color: UIColor,
-                                  emission: UIColor) -> SCNNode {
-            let textGeometry = SCNText(string: string, extrusionDepth: 0.02)
-            textGeometry.font = UIFont.boldSystemFont(ofSize: fontSize)
-            textGeometry.firstMaterial?.diffuse.contents = color
-            textGeometry.firstMaterial?.emission.contents = emission
-            let textNode = SCNNode(geometry: textGeometry)
-            // Center text baseline roughly
-            let (min, max) = textNode.boundingBox
-            let dx = (max.x - min.x) * 0.5 + min.x
-            textNode.pivot = SCNMatrix4MakeTranslation(dx, min.y, 0)
-            return textNode
-        }
-        
-        // MARK: - Sparkle Emitter (arrival effect)
-        private func makeSparkleEmitter(color: UIColor = .systemYellow) -> SCNNode {
-            let ps = SCNParticleSystem()
-            ps.loops = false
-            ps.emissionDuration = 0.25
-            ps.birthRate = 1200
-            ps.particleLifeSpan = 0.6
-            ps.particleLifeSpanVariation = 0.25
-            ps.particleSize = 0.008
-            ps.particleSizeVariation = 0.004
-            ps.particleColor = color
-            ps.particleColorVariation = SCNVector4(0.1, 0.1, 0.1, 0.0)
-            ps.blendMode = .additive
-            ps.isAffectedByGravity = false
-            ps.spreadingAngle = 180           // burst in all directions
-            ps.birthLocation = .surface
-            ps.birthDirection = .random
-            ps.particleVelocity = 0.8
-            ps.particleVelocityVariation = 0.4
-            ps.acceleration = SCNVector3(0, 0.8, 0) // slight upward drift
-            
-            #if canImport(UIKit)
-            if let img = UIImage(systemName: "sparkles",
-                                 withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .regular)) {
-                ps.particleImage = img
-            } else {
-                ps.particleImage = UIImage() // default white quad
-            }
-            #endif
-            
-            ps.emitterShape = SCNSphere(radius: 0.05)
-            
-            let node = SCNNode()
-            node.addParticleSystem(ps)
-            return node
-        }
-        
-        // MARK: - ARSCNViewDelegate
-        
-        func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-            // Throttle to ~10 Hz
-            if time - lastUpdateTime < 0.1 { return }
-            lastUpdateTime = time
-            
-            guard let sceneView = renderer as? ARSCNView else { return }
-            updateWaypointMarkers(in: sceneView)
-        }
-        
-        func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
-            switch camera.trackingState {
-            case .normal:
-                break
-            case .limited(let reason):
-                print("⚠️ AR tracking limited: \(reason)")
-            case .notAvailable:
-                print("❌ AR tracking not available")
-            @unknown default:
-                break
+
+            let nodes = root.childNodes
+            for (i, p) in samplesWorld.enumerated() {
+                guard i < nodes.count else { break }
+                let node = nodes[i]
+                node.position = SCNVector3(p.x, p.y, p.z)
+
+                // Yaw toward the next point, but KEEP the base X rotation at -π/2 to stay flat
+                let nextP = (i + 1 < samplesWorld.count) ? samplesWorld[i+1] : samplesWorld[i]
+                let dir = simd_normalize(nextP - p)
+                let yaw = atan2(dir.x, dir.z) + .pi 
+                let baseX: Float = -Float.pi / 2   // 🔧 stay flat on floor
+                let slightTilt: Float = -(.pi / 180) * 2.0
+                node.eulerAngles = SCNVector3(baseX + slightTilt, yaw, 0)
             }
         }
-        
-        func session(_ session: ARSession, didFailWithError error: Error) {
-            print("❌ AR Session error: \(error.localizedDescription)")
+
+        private func clearBreadcrumbs() { breadcrumbsRoot?.childNodes.forEach { $0.removeFromParentNode() } }
+
+        private func fadeOutBreadcrumbs() {
+            guard let root = breadcrumbsRoot else { return }
+            let fade = SCNAction.fadeOut(duration: 0.6)
+            root.runAction(fade) { [weak root] in
+                root?.childNodes.forEach { $0.removeFromParentNode() }
+                root?.opacity = 1.0
+            }
         }
+
+        private func bloomLastBreadcrumbs() {
+            guard let root = breadcrumbsRoot else { return }
+            let last = root.childNodes.suffix(4)
+            for n in last {
+                let up = SCNAction.scale(to: 1.25, duration: 0.15)
+                let down = SCNAction.scale(to: 1.0, duration: 0.25)
+                n.runAction(.sequence([up, down]))
+            }
+        }
+
+        // MARK: - Waypoint markers
+
+        func refreshWaypointMarkers(viewModel: NavigationViewModel) {
+            guard let root = waypointsRoot else { return }
+            root.childNodes.forEach { $0.removeFromParentNode() }
+            lastMarkersIndex = viewModel.currentWaypointIndex
+
+            guard case .navigating = viewModel.navigationState,
+                  let path = viewModel.currentPath,
+                  viewModel.currentWaypointIndex < path.waypoints.count else { return }
+
+            // Next waypoint (bigger, pulsating)
+            let nextWP = path.waypoints[viewModel.currentWaypointIndex]
+            let nextNode = ARVisualizationHelpers.createWaypointMarker(waypoint: nextWP, isNext: true)
+            root.addChildNode(nextNode)
+
+            // Final destination (smaller)
+            if let last = path.waypoints.last, last.id != nextWP.id {
+                let destNode = ARVisualizationHelpers.createWaypointMarker(waypoint: last, isNext: false)
+                root.addChildNode(destNode)
+            }
+        }
+
+        private func clearWaypointMarkers() { waypointsRoot?.childNodes.forEach { $0.removeFromParentNode() } }
     }
+}
+
+// MARK: - Small Double helper
+private extension Double {
+    func nonZeroOr(_ fallback: Double) -> Double { self == 0 ? fallback : self }
 }
