@@ -7,7 +7,8 @@
 
 import SwiftUI
 import Foundation
-import AVFoundation   // ✅ Needed for AVSpeechSynthesisVoice default code
+import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - Notification for launching the mapping flow
 extension Notification.Name {
@@ -38,6 +39,14 @@ struct SettingsView: View {
     @AppStorage("breadcrumbsColorScheme") private var breadcrumbsColorScheme: String = "Green"
 
     private let colorSchemes = ["Green","Cyan","Yellow","Magenta","White","Orange","Blue"]
+
+    // NEW: Map bundle export/import UI state
+    @ObservedObject private var jsonMaps = SimpleJSONMapManager.shared
+    @State private var selectedMapId: UUID?
+    @State private var shareURL: URL?
+    @State private var showShare = false
+    @State private var showImporter = false
+    @State private var importMessage: String?
 
     var body: some View {
         NavigationView {
@@ -270,6 +279,55 @@ struct SettingsView: View {
                 }
 
                 // =========================
+                // MARK: Map Bundles (Export / Import)
+                // =========================
+                Section {
+                    if jsonMaps.maps.isEmpty {
+                        Text("No JSON maps found").foregroundColor(.secondary)
+                    } else {
+                        Picker("Select a map", selection: $selectedMapId) {
+                            ForEach(jsonMaps.maps, id: \.id) { map in
+                                Text("\(map.name) • \(map.createdDate.formatted(date: .abbreviated, time: .shortened))")
+                                    .tag(map.id as UUID?)
+                            }
+                        }
+                        .onAppear {
+                            if selectedMapId == nil { selectedMapId = jsonMaps.maps.first?.id }
+                        }
+
+                        HStack {
+                            Button {
+                                guard let id = selectedMapId,
+                                      let map = jsonMaps.maps.first(where: { $0.id == id }) else { return }
+                                do {
+                                    let bundle = try MapPackageManager.createBundle(for: map)
+                                    let archive = try MapPackageManager.zipBundle(bundle)
+                                    shareURL = archive
+                                    showShare = true
+                                } catch {
+                                    importMessage = "Export failed: \(error.localizedDescription)"
+                                }
+                            } label: {
+                                Label("Export Selected Map", systemImage: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Button {
+                                showImporter = true
+                            } label: {
+                                Label("Import Map", systemImage: "square.and.arrow.down")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        if let msg = importMessage {
+                            Text(msg).font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                } header: { Text("Map Bundles") }
+                  footer: { Text("Packages map.json + ARWorldMap (if present) and an images folder into a single portable bundle you can AirDrop or share.") }
+
+                // =========================
                 // MARK: App Information
                 // =========================
                 Section {
@@ -300,9 +358,39 @@ struct SettingsView: View {
                 }
             }
         }
+        .sheet(isPresented: $showShare, onDismiss: { shareURL = nil }) {
+            if let url = shareURL {
+                ActivityView(activityItems: [url])
+                    .ignoresSafeArea()
+            }
+        }
+        .fileImporter(isPresented: $showImporter,
+                      allowedContentTypes: [UTType(filenameExtension: "zipjson")!],
+                      allowsMultipleSelection: false) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                do {
+                    _ = try MapPackageManager.unzipBundle(url)
+                    importMessage = "Imported bundle: \(url.lastPathComponent)"
+                } catch {
+                    importMessage = "Import failed: \(error.localizedDescription)"
+                }
+            case .failure(let error):
+                importMessage = "Import cancelled: \(error.localizedDescription)"
+            }
+        }
         // Attach mapping launcher
         .mappingLauncher()
     }
+}
+
+struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 #Preview {

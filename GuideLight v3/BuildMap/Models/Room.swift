@@ -12,13 +12,19 @@ struct Room: Codable, Identifiable, Equatable {
     let type: RoomType
     let floorSurface: FloorSurface
     let createdAt: Date
-    
-    init(name: String, type: RoomType = .general, floorSurface: FloorSurface = .carpet) {
+    /// NEW: human-authored description stored in map JSON
+    var description: String?   // ✅ added
+
+    init(name: String,
+         type: RoomType = .general,
+         floorSurface: FloorSurface = .carpet,
+         description: String? = nil) {
         self.id = UUID()
         self.name = name
         self.type = type
         self.floorSurface = floorSurface
         self.createdAt = Date()
+        self.description = description
     }
 }
 

@@ -1,21 +1,22 @@
+//
 //  NavigationMainView.swift
 //  GuideLight v3
 //
-//  Floating curved dock layout.
-//  Distance chip shows *steps to next waypoint* (user preference stepsPerMeter)
-//  Time chip uses *user walking speed* (walkingSpeedMps).
-//  Instruction line shows arrival message while visible; sticks to "Arrived" when state == .arrived.
+//  Navigation view with speech recognition support (VoiceCommandCenter removed)
+//
 
 import SwiftUI
 import ARKit
 import SceneKit
+import simd
 
-// MARK: - Main Navigation View
 struct NavigationMainView: View {
-    @StateObject private var relocalizationManager = ARRelocalizationManager()
+    @StateObject private var relocalizationManager: ARRelocalizationManager
     @StateObject private var calibrationViewModel: CalibrationViewModel
+    @StateObject private var speechCenter = SimpleSpeechCommandCenter.shared
     @State private var navigationViewModel: NavigationViewModel?
     
+    // Screen state
     @State private var showingCalibration = true
     @State private var showingDestinationPicker = false
     @State private var arSession = ARSession()
@@ -26,15 +27,17 @@ struct NavigationMainView: View {
     init(map: IndoorMap, mapFileName: String) {
         self.map = map
         self.mapFileName = mapFileName
-        _calibrationViewModel = StateObject(wrappedValue: CalibrationViewModel(
-            map: map,
-            relocalizationManager: ARRelocalizationManager()
-        ))
+
+        let rm = ARRelocalizationManager()
+        _relocalizationManager = StateObject(wrappedValue: rm)
+        _calibrationViewModel = StateObject(
+            wrappedValue: CalibrationViewModel(map: map, relocalizationManager: rm)
+        )
     }
     
     var body: some View {
         ZStack {
-            // AR Camera View (Full Screen)
+            // AR camera view
             if showingCalibration {
                 CalibrationARView(
                     viewModel: calibrationViewModel,
@@ -54,6 +57,11 @@ struct NavigationMainView: View {
             } else if let navViewModel = navigationViewModel {
                 navigationOverlay(navViewModel: navViewModel)
             }
+            
+            // Voice debug overlay
+            if speechCenter.isListening {
+                debugVoiceOverlay
+            }
         }
         .ignoresSafeArea()
         .sheet(isPresented: $showingDestinationPicker) {
@@ -65,13 +73,100 @@ struct NavigationMainView: View {
                 )
             }
         }
+        .onAppear {
+            setupNavigationScreen()
+        }
+        .onDisappear {
+            speechCenter.stopListening()
+        }
+        // Voice command handling for navigation destinations
+        .onReceive(NotificationCenter.default.publisher(for: .glVoiceNavigateCommand)) { note in
+            guard !showingCalibration,
+                  let navVM = navigationViewModel else { return }
+            let raw = (note.userInfo?["destination"] as? String) ?? ""
+            Task { @MainActor in
+                await handleVoiceNavigatePhrase(rawDestination: raw, navVM: navVM)
+            }
+        }
     }
     
-    // MARK: - Calibration Overlay
+    // MARK: - Voice Debug Overlay
+    private var debugVoiceOverlay: some View {
+        VStack {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle()
+                            .fill(speechCenter.isListening ? .green : .red)
+                            .frame(width: 8, height: 8)
+                        Text("Speech: \(speechCenter.isListening ? "ON" : "OFF")")
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                    }
+                    
+                    if !speechCenter.lastHeardText.isEmpty {
+                        Text("Heard: \(speechCenter.lastHeardText)")
+                            .font(.caption2)
+                            .foregroundColor(.yellow)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.black.opacity(0.7))
+            )
+            .padding(.horizontal)
+            .padding(.top, 50)
+            
+            Spacer()
+        }
+    }
+    
+    // MARK: - Setup Methods
+    private func setupNavigationScreen() {
+        // Keep speech recognition running during navigation
+        speechCenter.startListening()
+        
+        // Speak navigation screen announcement
+        VoiceGuide.shared.speak("Navigation screen.")
+    }
+    
+    // MARK: - Voice handling helper
+    @MainActor
+    private func handleVoiceNavigatePhrase(rawDestination: String, navVM: NavigationViewModel) async {
+        let trimmed = rawDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            VoiceGuide.shared.speak("Say, show me the path to, followed by a destination.")
+            return
+        }
+        guard let frame = arSession.currentFrame else {
+            VoiceGuide.shared.speak("Camera not ready yet.")
+            return
+        }
+        let currentPosition = CoordinateTransformManager.extractPosition(from: frame.camera)
+        switch await navVM.selectDestination(named: trimmed, session: arSession, currentPosition: currentPosition) {
+        case .success(let pickedName):
+            VoiceGuide.shared.speak("Taking you to \(pickedName).")
+        case .ambiguous(let options):
+            let list = options.prefix(3).map(\.name)
+            if list.count == 2 {
+                VoiceGuide.shared.speak("I found \(list[0]) and \(list[1]). Say first or second.")
+            } else if list.count >= 3 {
+                VoiceGuide.shared.speak("I found \(list[0]), \(list[1]), and \(list[2]). Say first, second, or third.")
+            }
+        case .notFound:
+            VoiceGuide.shared.speak("I couldn't find \(trimmed). Say list destinations to hear options.")
+        }
+    }
+    
+    // MARK: - Calibration Overlay (EXISTING)
     private var calibrationOverlay: some View {
         VStack {
             Spacer()
-            
             CalibrationProgressView(viewModel: calibrationViewModel)
                 .padding()
             
@@ -82,7 +177,6 @@ struct NavigationMainView: View {
                         .foregroundColor(.orange)
                         .padding(.horizontal)
                 }
-                
                 Button {
                     completeCalibration(calibration)
                 } label: {
@@ -99,13 +193,11 @@ struct NavigationMainView: View {
         }
     }
     
-    // MARK: - Navigation Overlay (Floating Dock + Controls + Arrival)
+    // MARK: - Navigation Overlay (EXISTING)
     private func navigationOverlay(navViewModel: NavigationViewModel) -> some View {
         ZStack {
             VStack {
                 Spacer()
-                
-                // Floating pill-shaped dock at bottom
                 FloatingDockView(
                     viewModel: navViewModel,
                     formatTimeShort: formatTimeShort,
@@ -113,29 +205,23 @@ struct NavigationMainView: View {
                 )
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
-                
-                // Controls (pause/resume/cancel)
                 navigationControls(navViewModel: navViewModel)
                     .padding(.bottom, 8)
             }
-            
-            // Arrival Message Overlay
             if navViewModel.showArrivalMessage, let message = navViewModel.arrivalMessage {
                 arrivalMessageView(message: message)
             }
         }
     }
     
-    // MARK: - Arrival Message View
+    // MARK: - Arrival Message (EXISTING)
     private func arrivalMessageView(message: String) -> some View {
         VStack {
             Spacer()
-            
             HStack {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title)
                     .foregroundColor(.green)
-                
                 Text(message)
                     .font(.title2.weight(.bold))
                     .foregroundColor(.white)
@@ -144,15 +230,13 @@ struct NavigationMainView: View {
             .background(Color.black.opacity(0.8))
             .cornerRadius(16)
             .shadow(color: .black.opacity(0.3), radius: 10)
-            .transition(.scale.combined(with: .opacity))
-            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: message)
-            
+            .transition(AnyTransition.scale(scale: 0.95).combined(with: .opacity))
             Spacer()
             Spacer()
         }
     }
     
-    // MARK: - Navigation Controls
+    // MARK: - Controls (EXISTING)
     private func navigationControls(navViewModel: NavigationViewModel) -> some View {
         HStack(spacing: 20) {
             if case .navigating = navViewModel.navigationState {
@@ -196,9 +280,10 @@ struct NavigationMainView: View {
         }
     }
     
-    // MARK: - Helper Methods
+    // MARK: - Completion (EXISTING)
     private func completeCalibration(_ calibration: CalibrationData) {
-        navigationViewModel = NavigationViewModel(map: map, calibration: calibration)
+        let navVM = NavigationViewModel(map: map, calibration: calibration)
+        navigationViewModel = navVM
         showingCalibration = false
         showingDestinationPicker = true
     }
@@ -219,138 +304,69 @@ struct NavigationMainView: View {
     }
 }
 
-// MARK: - Floating Curved Dock
+// MARK: - Floating Curved Dock (EXISTING)
 private struct FloatingDockView: View {
     @ObservedObject var viewModel: NavigationViewModel
     let formatTimeShort: (TimeInterval) -> String
-    let formatDistance: (Float) -> String   // kept for compatibility, unused for steps
-    
-    // 🔧 User preferences (editable from Settings)
-    @AppStorage("stepsPerMeter") private var stepsPerMeter: Double = 1.35       // avg adult ~1.3–1.5
-    @AppStorage("walkingSpeedMps") private var walkingSpeedMps: Double = 1.20   // m/s (slow indoor pace)
+    let formatDistance: (Float) -> String
+    @AppStorage("stepsPerMeter") private var stepsPerMeter: Double = 1.35
+    @AppStorage("walkingSpeedMps") private var walkingSpeedMps: Double = 1.20
     
     var body: some View {
         HStack(spacing: 16) {
-            // LEFT: Compact compass (rotating arrow)
-            MiniCompassView(headingError: viewModel.progress?.headingError ?? 0)
-                .frame(width: 84, height: 84)
+            MiniCompassView(headingError: Double(viewModel.progress?.headingError ?? 0))
+                .frame(width: 72, height: 72)
             
-            // RIGHT: Two rows
-            VStack(alignment: .leading, spacing: 8) {
-                // Row 1: Instruction / Arrival message precedence
-                if viewModel.showArrivalMessage, let msg = viewModel.arrivalMessage {
-                    Text(msg)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                } else if case .arrived = viewModel.navigationState {
-                    Text("Arrived")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                } else if let progress = viewModel.progress {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(progress.clockInstructionText)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.85)
-                        
-                        Text(progress.degreeHelperText)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.7))
+            VStack(alignment: .leading, spacing: 4) {
+                if let progress = viewModel.progress {
+                    HStack {
+                        RoundedChip(text: formatDistance(progress.distanceToNextWaypoint))
+                        RoundedChip(text: formatTimeShort(progress.estimatedTimeRemaining))
+                    }
+                    if let currentWaypoint = viewModel.currentWaypoint {
+                        Text(currentWaypoint.name.isEmpty ? "Next waypoint" : currentWaypoint.name)
+                            .font(.caption.weight(.medium))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
                     }
                 } else {
-                    Text("Align with your route")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.9))
-                }
-                
-                // Row 2: To/Next (left)  •  Steps / Time-to-next (right)
-                HStack(alignment: .center, spacing: 12) {
-                    // To / Next labels
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let dest = viewModel.destinationBeacon {
-                            Text("To: \(dest.name)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.white.opacity(0.95))
-                                .lineLimit(1)
-                        }
-                        if let next = viewModel.currentWaypoint {
-                            Text("Next: \(next.name)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.85))
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    // Steps / Time chips
-                    if let progress = viewModel.progress {
-                        let steps = max(1, Int((Double(progress.distanceToNextWaypoint) * stepsPerMeter).rounded()))
-                        let timeToNext = TimeInterval(Double(progress.distanceToNextWaypoint) / max(0.2, walkingSpeedMps)) // guard divide-by-zero
-                        HStack(spacing: 8) {
-                            RoundedChip(text: steps == 1 ? "1 step" : "\(steps) steps")
-                            RoundedChip(text: formatTimeShort(timeToNext))
-                        }
-                    } else {
-                        HStack(spacing: 8) {
-                            RoundedChip(text: "—")
-                            RoundedChip(text: "—")
-                        }
-                    }
+                    Text("Calculating route...")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
         .background(
-            Capsule()
-                .fill(Color.black.opacity(0.72))
+            RoundedRectangle(cornerRadius: 24)
+                .fill(.black.opacity(viewModel.veilOpacity))
                 .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(.white.opacity(0.15), lineWidth: 1.5)
                 )
-                .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 8)
         )
-        .animation(.easeInOut(duration: 0.2), value: viewModel.currentWaypoint?.id)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.progress?.distanceToNextWaypoint)
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
     }
 }
 
-// MARK: - Mini Compass
 private struct MiniCompassView: View {
-    let headingError: Float
+    let headingError: Double
+    private let arrowColor = Color.cyan
     
     var body: some View {
         ZStack {
-            Circle().fill(Color.black.opacity(0.35))
-            Circle().stroke(Color.white.opacity(0.30), lineWidth: 2).padding(6)
-            CompassTicks().stroke(Color.white.opacity(0.35), lineWidth: 2).padding(14)
-            ClockArrowHand(headingError: Double(headingError), color: .green)
-                .frame(width: 64, height: 64)
+            Circle()
+                .fill(.black.opacity(0.6))
+                .overlay(Circle().stroke(.white.opacity(0.2), lineWidth: 2))
+            
+            ClockArrowHand(headingError: headingError, color: arrowColor)
         }
+        .frame(width: 72, height: 72)
     }
 }
 
-private struct CompassTicks: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let r = min(rect.width, rect.height) / 2
-        let angles: [CGFloat] = [0, .pi/2, .pi, 3 * .pi/2]
-        for a in angles {
-            let inner = CGPoint(x: center.x + (r - 10) * cos(a),
-                                y: center.y + (r - 10) * sin(a))
-            let outer = CGPoint(x: center.x + r * cos(a),
-                                y: center.y + r * sin(a))
-            p.move(to: inner); p.addLine(to: outer)
-        }
-        return p
-    }
-}
-
-// MARK: - Rounded Chip
 private struct RoundedChip: View {
     let text: String
     var body: some View {
@@ -363,36 +379,29 @@ private struct RoundedChip: View {
     }
 }
 
-// MARK: - Clock Arrow Hand (unchanged visuals)
 struct ClockArrowHand: View {
     let headingError: Double
     let color: Color
-    
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6)
-                .fill(
-                    LinearGradient(colors: [color, color.opacity(0.7)],
-                                   startPoint: .bottom, endPoint: .top)
-                )
+                .fill(LinearGradient(colors: [color, color.opacity(0.7)],
+                                     startPoint: .bottom, endPoint: .top))
                 .frame(width: 12, height: 48)
                 .offset(y: -12)
-                .shadow(color: .black.opacity(0.35), radius: 3, x: 0, y: 2)
             if abs(headingError) < 0.15 {
                 Circle()
-                    .fill(
-                        RadialGradient(colors: [color.opacity(0.35), .clear],
-                                       center: .center, startRadius: 20, endRadius: 56)
-                    )
+                    .fill(RadialGradient(colors: [color.opacity(0.35), .clear],
+                                         center: .center, startRadius: 20, endRadius: 56))
                     .frame(width: 84, height: 84)
             }
         }
-        .rotationEffect(.degrees(headingError * 180 / .pi))
+        .rotationEffect(.degrees(headingError * 180 / Double.pi))
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: headingError)
     }
 }
 
-// MARK: - Destination Picker (unchanged)
+// MARK: - Destination Picker (EXISTING)
 struct DestinationPickerView: View {
     @ObservedObject var viewModel: NavigationViewModel
     @Environment(\.dismiss) private var dismiss
@@ -433,7 +442,7 @@ struct DestinationPickerView: View {
     }
 }
 
-// MARK: - Calibration Progress View (unchanged)
+// MARK: - Calibration Progress View (EXISTING)
 struct CalibrationProgressView: View {
     @ObservedObject var viewModel: CalibrationViewModel
     
@@ -492,9 +501,4 @@ struct CalibrationProgressView: View {
         .background(Color.black.opacity(0.7))
         .cornerRadius(16)
     }
-}
-
-#Preview {
-    let sampleMap = IndoorMap(name: "Sample Home")
-    NavigationMainView(map: sampleMap, mapFileName: "sample.arworldmap")
 }

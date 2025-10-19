@@ -734,11 +734,6 @@ class SimpleJSONMapManager: ObservableObject {
     }
 }
 
-// MARK: - Notification Extension
-extension Notification.Name {
-    static let mapSelectedForNavigation = Notification.Name("MapSelectedForNavigation")
-}
-
 // MARK: - Simple Session JSON View
 struct SimpleSessionJSONView: View {
     @ObservedObject private var mapManager = SimpleJSONMapManager.shared

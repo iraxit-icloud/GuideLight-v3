@@ -1,5 +1,5 @@
 //
-//  PathfindingEngine.swift - FIXED: Better debugging and doorway routing
+//  PathfindingEngine.swift - ENHANCED: Include waypoints for connected beacons
 //  GuideLight v3
 //
 
@@ -17,6 +17,7 @@ class PathfindingEngine {
         print("   Rooms: \(map.rooms.count)")
         print("   Beacons: \(map.beacons.count)")
         print("   Doorways: \(map.doorways.count)")
+        print("   Waypoints: \(map.waypoints.count)")
     }
     
     // MARK: - Main Pathfinding Method
@@ -37,10 +38,10 @@ class PathfindingEngine {
         print("   Start room: \(startRoom != nil ? (map.room(withId: startRoom!)?.name ?? startRoom!) : "UNKNOWN")")
         print("   Dest room: \(map.room(withId: destRoom)?.name ?? destRoom)")
         
-        // If in same room, create direct path
+        // If in same room, create direct path (enhanced with waypoint checking)
         if let startRoom = startRoom, startRoom == destRoom {
-            print("✅ Same room - creating direct path")
-            return createDirectPath(from: startPosition, to: destinationBeacon)
+            print("✅ Same room - creating direct path with waypoint checking")
+            return createDirectPathWithWaypoints(from: startPosition, to: destinationBeacon)
         }
         
         // Different rooms - need to go through doorways
@@ -66,8 +67,8 @@ class PathfindingEngine {
         
         print("✅ Found doorway path with \(doorwayPath.count) doorways")
         
-        // Build complete path with waypoints
-        return buildCompletePath(
+        // Build complete path with waypoints (enhanced)
+        return buildCompletePathWithWaypoints(
             from: startPosition,
             to: destinationBeacon,
             via: doorwayPath
@@ -133,23 +134,17 @@ class PathfindingEngine {
                 break
             }
             
-            print("     Iteration \(iterations): Exploring \(map.room(withId: current)?.name ?? current)")
+            let currentName = map.room(withId: current)?.name ?? current
+            print("     Checking \(currentName) (iteration \(iterations))")
             
             if current == destRoom {
                 print("✅ Found path to destination!")
-                // Reconstruct path
                 return reconstructDoorwayPath(from: cameFrom, startRoom: startRoom, destRoom: destRoom)
             }
             
             openSet.remove(current)
             
-            // Check neighbors
-            guard let neighbors = roomGraph[current] else {
-                print("       No neighbors found")
-                continue
-            }
-            
-            print("       Found \(neighbors.count) neighbors")
+            guard let neighbors = roomGraph[current] else { continue }
             
             for (doorway, neighbor) in neighbors {
                 let tentativeGScore = (gScore[current] ?? Float.infinity) + doorway.width
@@ -199,44 +194,81 @@ class PathfindingEngine {
         return path
     }
     
-    // MARK: - Path Building
+    // MARK: - Enhanced Path Building with Waypoint Support
     
-    private func createDirectPath(from start: simd_float3, to beacon: Beacon) -> NavigationPath {
-        let waypoints = [
-            NavigationWaypoint(
-                position: start,
-                type: .start,
-                name: "Start",
-                roomId: beacon.roomId
-            ),
-            NavigationWaypoint(
-                position: beacon.position,
-                type: .destination,
-                name: beacon.name,
-                roomId: beacon.roomId,
-                audioInstruction: "You have arrived at \(beacon.name)"
+    private func createDirectPathWithWaypoints(from start: simd_float3, to beacon: Beacon) -> NavigationPath {
+        print("🎯 Creating direct path with waypoint checking...")
+        
+        var waypoints: [NavigationWaypoint] = []
+        var totalDistance: Float = 0
+        let roomsTraversed: [String] = []
+        
+        // Start waypoint
+        waypoints.append(NavigationWaypoint(
+            position: start,
+            type: .start,
+            name: "Start",
+            roomId: beacon.roomId
+        ))
+        
+        // Check for waypoints that should be included based on beacon connections
+        let intermediateWaypoints = findWaypointsForBeacons(
+            from: start,
+            to: beacon.position,
+            beaconA: nil, // Start position doesn't have a beacon ID
+            beaconB: beacon.id.uuidString
+        )
+        
+        // Add intermediate waypoints
+        var currentPos = start
+        for waypoint in intermediateWaypoints {
+            let waypointNavWaypoint = NavigationWaypoint(
+                position: waypoint.coordinates,
+                type: .intermediate,
+                name: waypoint.name,
+                roomId: waypoint.roomId,
+                audioInstruction: waypoint.audioLandmark
             )
-        ]
+            waypoints.append(waypointNavWaypoint)
+            
+            let segmentDistance = simd_distance(currentPos, waypoint.coordinates)
+            totalDistance += segmentDistance
+            currentPos = waypoint.coordinates
+            
+            print("     Added waypoint: \(waypoint.name) - \(String(format: "%.1fm", segmentDistance))")
+        }
         
-        let distance = simd_distance(start, beacon.position)
-        let time = TimeInterval(distance / 1.2)
+        // Destination waypoint
+        waypoints.append(NavigationWaypoint(
+            position: beacon.position,
+            type: .destination,
+            name: beacon.name,
+            roomId: beacon.roomId,
+            audioInstruction: "You have arrived at \(beacon.name)"
+        ))
         
-        print("✅ Direct path created: \(String(format: "%.1fm", distance))")
+        // Add final segment distance
+        let finalDistance = simd_distance(currentPos, beacon.position)
+        totalDistance += finalDistance
+        
+        let time = TimeInterval(totalDistance / 1.2)
+        
+        print("✅ Direct path with waypoints created: \(String(format: "%.1fm", totalDistance))")
         return NavigationPath(
             waypoints: waypoints,
-            totalDistance: distance,
+            totalDistance: totalDistance,
             estimatedTime: time,
-            roomsTraversed: [beacon.roomId]
+            roomsTraversed: roomsTraversed
         )
     }
     
-    private func buildCompletePath(
+    private func buildCompletePathWithWaypoints(
         from start: simd_float3,
         to destination: Beacon,
         via doorways: [Doorway]
     ) -> NavigationPath? {
         
-        print("   Building complete path...")
+        print("   Building complete path with waypoint integration...")
         
         var waypoints: [NavigationWaypoint] = []
         var totalDistance: Float = 0
@@ -254,25 +286,53 @@ class PathfindingEngine {
         
         print("     1. Start at \(formatPosition(start))")
         
-        // Add doorway waypoints
+        // Process each segment of the path
         var currentPos = start
         var currentRoom = startRoom
         var step = 2
         
         for doorway in doorways {
-            // Add waypoint at doorway
             let nextRoom = doorway.connectsRooms.otherRoom(from: currentRoom) ?? currentRoom
+            
+            // Check for waypoints between current position and doorway
+            let segmentWaypoints = findWaypointsForSegment(
+                from: currentPos,
+                to: doorway.position,
+                currentRoom: currentRoom,
+                excludingDoorways: true
+            )
+            
+            // Add intermediate waypoints for this segment
+            for waypoint in segmentWaypoints {
+                let waypointNavWaypoint = NavigationWaypoint(
+                    position: waypoint.coordinates,
+                    type: .intermediate,
+                    name: waypoint.name,
+                    roomId: waypoint.roomId,
+                    audioInstruction: waypoint.audioLandmark
+                )
+                waypoints.append(waypointNavWaypoint)
+                
+                let segmentDistance = simd_distance(currentPos, waypoint.coordinates)
+                totalDistance += segmentDistance
+                currentPos = waypoint.coordinates
+                
+                print("     \(step). Waypoint: \(waypoint.name) - \(String(format: "%.1fm", segmentDistance))")
+                step += 1
+            }
+            
+            // Add doorway waypoint
             let doorwayWaypoint = NavigationWaypoint(
                 position: doorway.position,
                 type: .doorway,
                 name: doorway.name,
                 roomId: currentRoom,
                 doorwayId: doorway.id.uuidString,
-                audioInstruction: doorway.navigationGuidance(from: currentRoom, to: nextRoom)
+                audioInstruction: getNavigationGuidance(for: doorway, from: currentRoom, to: nextRoom)
             )
             waypoints.append(doorwayWaypoint)
             
-            // Update distance
+            // Update distance to doorway
             let segmentDistance = simd_distance(currentPos, doorway.position)
             totalDistance += segmentDistance
             print("     \(step). \(doorway.name) - \(String(format: "%.1fm", segmentDistance))")
@@ -284,6 +344,33 @@ class PathfindingEngine {
             if !roomsTraversed.contains(currentRoom) {
                 roomsTraversed.append(currentRoom)
             }
+        }
+        
+        // Check for waypoints between last doorway and destination
+        let finalSegmentWaypoints = findWaypointsForSegment(
+            from: currentPos,
+            to: destination.position,
+            currentRoom: currentRoom,
+            excludingDoorways: true
+        )
+        
+        // Add final segment waypoints
+        for waypoint in finalSegmentWaypoints {
+            let waypointNavWaypoint = NavigationWaypoint(
+                position: waypoint.coordinates,
+                type: .intermediate,
+                name: waypoint.name,
+                roomId: waypoint.roomId,
+                audioInstruction: waypoint.audioLandmark
+            )
+            waypoints.append(waypointNavWaypoint)
+            
+            let segmentDistance = simd_distance(currentPos, waypoint.coordinates)
+            totalDistance += segmentDistance
+            currentPos = waypoint.coordinates
+            
+            print("     \(step). Waypoint: \(waypoint.name) - \(String(format: "%.1fm", segmentDistance))")
+            step += 1
         }
         
         // Destination waypoint
@@ -314,7 +401,199 @@ class PathfindingEngine {
         )
     }
     
+    // MARK: - Waypoint Detection Methods
+    
+    /// Find waypoints that should be included when traveling between two beacons
+    private func findWaypointsForBeacons(
+        from startPos: simd_float3,
+        to endPos: simd_float3,
+        beaconA: String?,
+        beaconB: String
+    ) -> [Waypoint] {
+        var relevantWaypoints: [Waypoint] = []
+        
+        // Find waypoints that connect these beacons
+        for waypoint in map.waypoints {
+            guard waypoint.isAccessible && waypoint.connectedBeacons.count >= 2 else { continue }
+            
+            // Check if this waypoint connects the two beacons (if we have both beacon IDs)
+            if let beaconA = beaconA {
+                if waypoint.connectedBeacons.contains(beaconA) && waypoint.connectedBeacons.contains(beaconB) {
+                    relevantWaypoints.append(waypoint)
+                    print("     Found connecting waypoint: \(waypoint.name) (connects \(beaconA) ↔ \(beaconB))")
+                }
+            } else {
+                // For start position, check if waypoint connects to destination beacon
+                if waypoint.connectedBeacons.contains(beaconB) {
+                    relevantWaypoints.append(waypoint)
+                    print("     Found connecting waypoint: \(waypoint.name) (connects to \(beaconB))")
+                }
+            }
+        }
+        
+        // Sort waypoints by distance from start position for logical ordering
+        relevantWaypoints.sort { waypoint1, waypoint2 in
+            let dist1 = simd_distance(startPos, waypoint1.coordinates)
+            let dist2 = simd_distance(startPos, waypoint2.coordinates)
+            return dist1 < dist2
+        }
+        
+        return relevantWaypoints
+    }
+    
+    /// Find waypoints that should be included in a path segment (including cross-room connections)
+    private func findWaypointsForSegment(
+        from startPos: simd_float3,
+        to endPos: simd_float3,
+        currentRoom: String,
+        excludingDoorways: Bool = false
+    ) -> [Waypoint] {
+        var relevantWaypoints: [Waypoint] = []
+        
+        // Get beacons near start and end positions (including cross-room beacons)
+        let startBeacon = findNearestBeacon(to: startPos, inRoom: currentRoom)
+        let endBeacon = findNearestBeaconGlobally(to: endPos) // Check all rooms for end beacon
+        
+        for waypoint in map.waypoints {
+            guard waypoint.isAccessible else { continue }
+            
+            // Skip if we're excluding doorways and this waypoint is too close to doorways
+            if excludingDoorways {
+                let nearDoorway = map.doorways.contains { doorway in
+                    simd_distance(waypoint.coordinates, doorway.position) < 1.0
+                }
+                if nearDoorway { continue }
+            }
+            
+            // Check if waypoint connects relevant beacons
+            var shouldInclude = false
+            
+            // Case 1: Waypoint connects start and end beacons (even if in different rooms)
+            if let startBeacon = startBeacon, let endBeacon = endBeacon {
+                if waypoint.connectedBeacons.contains(startBeacon.id.uuidString) &&
+                   waypoint.connectedBeacons.contains(endBeacon.id.uuidString) {
+                    shouldInclude = true
+                    print("     Waypoint \(waypoint.name) connects path beacons (\(startBeacon.name) ↔ \(endBeacon.name))")
+                    
+                    // If beacons are in different rooms, this waypoint enables cross-room connection
+                    if startBeacon.roomId != endBeacon.roomId {
+                        print("     Cross-room connection: \(startBeacon.roomId) ↔ \(endBeacon.roomId) via waypoint")
+                    }
+                }
+            }
+            
+            // Case 2: Waypoint has connected beacons that would create an edge along this path
+            if !shouldInclude && waypoint.connectedBeacons.count >= 2 {
+                // Check if any pair of connected beacons are both relevant to this path segment
+                for i in 0..<waypoint.connectedBeacons.count {
+                    for j in (i+1)..<waypoint.connectedBeacons.count {
+                        let beacon1Id = waypoint.connectedBeacons[i]
+                        let beacon2Id = waypoint.connectedBeacons[j]
+                        
+                        if let beacon1 = map.beacons.first(where: { $0.id.uuidString == beacon1Id }),
+                           let beacon2 = map.beacons.first(where: { $0.id.uuidString == beacon2Id }) {
+                            
+                            // Include waypoint if it connects beacons that are part of cross-room navigation
+                            // This handles the case where beacons x and y are in different rooms but connected via waypoint
+                            let beacon1RelevantToPath = isBeaconRelevantToPath(beacon1, startPos: startPos, endPos: endPos)
+                            let beacon2RelevantToPath = isBeaconRelevantToPath(beacon2, startPos: startPos, endPos: endPos)
+                            
+                            if beacon1RelevantToPath && beacon2RelevantToPath {
+                                shouldInclude = true
+                                print("     Waypoint \(waypoint.name) creates edge between \(beacon1.name) ↔ \(beacon2.name)")
+                                
+                                if beacon1.roomId != beacon2.roomId {
+                                    print("     Cross-room edge: \(beacon1.roomId) ↔ \(beacon2.roomId)")
+                                }
+                                break
+                            }
+                        }
+                    }
+                    if shouldInclude { break }
+                }
+            }
+            
+            if shouldInclude {
+                relevantWaypoints.append(waypoint)
+            }
+        }
+        
+        // Sort waypoints by distance from start position for logical ordering
+        relevantWaypoints.sort { waypoint1, waypoint2 in
+            let dist1 = simd_distance(startPos, waypoint1.coordinates)
+            let dist2 = simd_distance(startPos, waypoint2.coordinates)
+            return dist1 < dist2
+        }
+        
+        return relevantWaypoints
+    }
+    
     // MARK: - Helper Methods
+    
+    private func findNearestBeacon(to position: simd_float3, inRoom roomId: String) -> Beacon? {
+        let roomBeacons = map.beacons.filter { $0.roomId == roomId }
+        
+        var nearestBeacon: Beacon?
+        var minDistance: Float = Float.infinity
+        
+        for beacon in roomBeacons {
+            let distance = simd_distance(position, beacon.position)
+            if distance < minDistance {
+                minDistance = distance
+                nearestBeacon = beacon
+            }
+        }
+        
+        return nearestBeacon
+    }
+    
+    private func findNearestBeaconGlobally(to position: simd_float3) -> Beacon? {
+        var nearestBeacon: Beacon?
+        var minDistance: Float = Float.infinity
+        
+        for beacon in map.beacons {
+            let distance = simd_distance(position, beacon.position)
+            if distance < minDistance {
+                minDistance = distance
+                nearestBeacon = beacon
+            }
+        }
+        
+        return nearestBeacon
+    }
+    
+    private func isBeaconRelevantToPath(_ beacon: Beacon, startPos: simd_float3, endPos: simd_float3) -> Bool {
+        // A beacon is relevant if it's reasonably close to either the start or end of the path segment
+        let distToStart = simd_distance(beacon.position, startPos)
+        let distToEnd = simd_distance(beacon.position, endPos)
+        
+        // Consider beacon relevant if it's within 10 meters of either endpoint
+        // This is more generous for cross-room connections
+        return distToStart < 10.0 || distToEnd < 10.0
+    }
+    
+    private func distanceFromPointToLineSegment(
+        point: simd_float3,
+        lineStart: simd_float3,
+        lineEnd: simd_float3
+    ) -> Float {
+        let lineVec = lineEnd - lineStart
+        let pointVec = point - lineStart
+        let lineLength = simd_length(lineVec)
+        
+        guard lineLength > 0 else {
+            return simd_distance(point, lineStart)
+        }
+        
+        let lineUnit = lineVec / lineLength
+        let projectionLength = simd_dot(pointVec, lineUnit)
+        
+        // Clamp to line segment
+        let clampedProjection = max(0, min(lineLength, projectionLength))
+        let closestPointOnLine = lineStart + lineUnit * clampedProjection
+        
+        return simd_distance(point, closestPointOnLine)
+    }
     
     private func determineRoom(for position: simd_float3) -> String? {
         var closestBeacon: Beacon?
@@ -353,5 +632,24 @@ class PathfindingEngine {
     
     private func formatPosition(_ pos: simd_float3) -> String {
         return "(\(String(format: "%.1f", pos.x)), \(String(format: "%.1f", pos.z)))"
+    }
+    
+    /// Get audio guidance for navigation with room names
+    private func getNavigationGuidance(for doorway: Doorway, from fromRoomId: String, to toRoomId: String) -> String {
+        let action = doorway.action(from: fromRoomId, to: toRoomId)
+        let targetRoomName = map.room(withId: toRoomId)?.name ?? toRoomId
+        
+        switch action {
+        case .push:
+            return "Push door to enter \(targetRoomName)"
+        case .pull:
+            return "Pull door to enter \(targetRoomName)"
+        case .slide:
+            return "Slide door to enter \(targetRoomName)"
+        case .automatic:
+            return "Door opens automatically, walk through to \(targetRoomName)"
+        case .walkThrough:
+            return "Walk through to \(targetRoomName)"
+        }
     }
 }

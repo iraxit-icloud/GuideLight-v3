@@ -16,8 +16,8 @@ struct ARPortalLogoView: View {
                 color: waveColor,
                 ringCount: 4,
                 cycle: 3.6,             // slower than before (was ~2.2)
-                maxRadiusFactor: 0.62,  // larger spread
-                maxLineWidth: 12,
+                maxRadiusFactor: 0.50,  // larger spread
+                maxLineWidth: 5,
                 baseOpacity: 0.28       // more visible
             )
             .frame(width: size * 2.1, height: size * 2.1) // bigger canvas

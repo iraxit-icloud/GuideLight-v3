@@ -14,6 +14,10 @@ import Combine
 class NavigationIntegrationHelper: ObservableObject {
     static let shared = NavigationIntegrationHelper()
     
+    // MARK: - Private constants
+    /// Use a private alias to avoid symbol ambiguity.
+    private let GLMapSelectedNote = Notification.Name("GuideLight.MapSelectedForNavigation")
+    
     @Published var selectedMapForNavigation: JSONMap?
     @Published var isARWorldMapLoaded = false
     @Published var loadingProgress: String = ""
@@ -27,7 +31,8 @@ class NavigationIntegrationHelper: ObservableObject {
     
     // MARK: - Notification Listeners
     private func setupNotificationListeners() {
-        NotificationCenter.default.publisher(for: .mapSelectedForNavigation)
+        NotificationCenter.default
+            .publisher(for: GLMapSelectedNote)
             .sink { [weak self] notification in
                 self?.handleMapSelectionChange(notification)
             }
@@ -147,7 +152,7 @@ class NavigationIntegrationHelper: ObservableObject {
                 let audioLandmark = beaconDict["audioLandmark"] as? String
                 let isAccessible = beaconDict["isAccessible"] as? Bool ?? true
                 
-                // Parse physical properties if present
+                // Physical properties
                 var physicalProperties: PhysicalProperties?
                 if let propsDict = beaconDict["physicalProperties"] as? [String: Any],
                    let isObstacle = propsDict["isObstacle"] as? Bool,
@@ -230,7 +235,7 @@ class NavigationIntegrationHelper: ObservableObject {
             }
         }
         
-        // Parse waypoints (optional)
+        // Parse waypoints
         var waypoints: [Waypoint] = []
         if let waypointsData = jsonMap.jsonData["waypoints"] as? [[String: Any]] {
             for waypointDict in waypointsData {

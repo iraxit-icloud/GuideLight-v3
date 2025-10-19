@@ -3,6 +3,7 @@
 //  GuideLight v3
 //
 //  FIXED: Toolbar ambiguity and added parseIndoorMap support
+//  UPDATED: Voice handoff from Home (wakeword / "take me <dest>")
 //
 
 import SwiftUI
@@ -14,8 +15,21 @@ struct PathNavigationLauncherView: View {
     @State private var showingMapSelection = false
     @State private var errorMessage: String?
     @State private var showingError = false
+
+    // Carry-over from voice launch
+    let initialDestinationName: String?
+    let fromVoice: Bool
+
+    // We’ll send the destination to Navigation after the screen is up
+    @State private var pendingDestinationToSend: String? = nil
     
     private let mapManager = SimpleJSONMapManager.shared
+
+    // Back-compat default init for existing call sites / previews
+    init(initialDestinationName: String? = nil, fromVoice: Bool = false) {
+        self.initialDestinationName = initialDestinationName
+        self.fromVoice = fromVoice
+    }
     
     var body: some View {
         NavigationView {
@@ -38,17 +52,42 @@ struct PathNavigationLauncherView: View {
         .sheet(isPresented: $showingMapSelection) {
             SimpleJSONMapsListView()
         }
-        .fullScreenCover(isPresented: $showingNavigation) {
+        .fullScreenCover(isPresented: $showingNavigation, onDismiss: {
+            // Clear pending command if user comes back
+            pendingDestinationToSend = nil
+        }) {
             if let selectedMap = mapManager.getSelectedMapForNavigation(),
                let arWorldMapFileName = selectedMap.arWorldMapFileName,
                let indoorMap = NavigationIntegrationHelper.parseIndoorMap(from: selectedMap) {
+                // Present Navigation UI
                 NavigationMainView(map: indoorMap, mapFileName: arWorldMapFileName)
+                    .onAppear {
+                        // Defer sending the voice command slightly to ensure AR view is mounted
+                        if let dest = pendingDestinationToSend, !dest.isEmpty {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                NotificationCenter.default.post(
+                                    name: .glVoiceNavigateCommand,
+                                    object: nil,
+                                    userInfo: ["destination": dest]
+                                )
+                                // Only send once
+                                pendingDestinationToSend = nil
+                            }
+                        }
+                    }
             }
         }
         .alert("Navigation Error", isPresented: $showingError) {
             Button("OK") { }
         } message: {
             Text(errorMessage ?? "Unknown error")
+        }
+        .onAppear {
+            // Capture any destination requested by voice and auto-launch if possible
+            pendingDestinationToSend = initialDestinationName
+            if fromVoice {
+                attemptAutoLaunchForVoice()
+            }
         }
     }
     
@@ -266,6 +305,22 @@ struct PathNavigationLauncherView: View {
         print("   Rooms: \(indoorMap.rooms.count)")
         print("   Doorways: \(indoorMap.doorways.count)")
         
+        showingNavigation = true
+    }
+
+    /// Voice path: if a map is ready, auto-launch; else nudge to select a map.
+    private func attemptAutoLaunchForVoice() {
+        guard let selectedMap = mapManager.getSelectedMapForNavigation() else {
+            // No map — open selector so the user can continue hands-free
+            showingMapSelection = true
+            return
+        }
+        guard selectedMap.hasARWorldMap else {
+            errorMessage = "Selected map doesn't have ARWorldMap data.\n\nPlease remap this location using 'Build Map' to enable navigation."
+            showingError = true
+            return
+        }
+        // Everything looks good — go
         showingNavigation = true
     }
 }

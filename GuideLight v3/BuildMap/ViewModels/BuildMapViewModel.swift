@@ -374,6 +374,7 @@ class BuildMapViewModel: NSObject, ObservableObject {
             return
         }
         
+        // New field defaults to empty — you can link beacons later via an edit flow
         let waypoint = Waypoint(
             name: tempItemName.trimmingCharacters(in: .whitespacesAndNewlines),
             coordinates: position,
@@ -381,7 +382,8 @@ class BuildMapViewModel: NSObject, ObservableObject {
             waypointType: .navigation,
             isAccessible: true,
             description: nil,
-            audioLandmark: nil
+            audioLandmark: nil,
+            connectedBeacons: [] // ← start empty; can be populated when you define edges
         )
         
         var updatedWaypoints = currentMap.waypoints

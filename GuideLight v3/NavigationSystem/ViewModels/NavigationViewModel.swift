@@ -2,12 +2,20 @@
 //  NavigationViewModel.swift
 //  GuideLight v3
 //
-//  Complete file with multi-stop "Arrived at X, now proceed to Y" messaging
+//  Multi-stop navigation with arrival messages + dynamic veil + real % progress
 //
 
 import Foundation
 import ARKit
 import Combine
+import simd
+
+// MARK: - Selection result for voice workflows
+enum DestinationSelectionResult {
+    case success(String)           // picked name
+    case ambiguous([Beacon])       // top candidates
+    case notFound
+}
 
 // MARK: - Navigation View Model
 @MainActor
@@ -27,6 +35,10 @@ class NavigationViewModel: ObservableObject {
     
     // Path JSON for external visualization
     @Published var pathJSON: String?
+    
+    // Dynamic veil (readability in bright scenes)
+    @Published var ambientLightIntensity: Float = 1000    // ~0..2000+ (ARKit)
+    @Published var veilOpacity: Double = 0.72             // 0.5..0.9 dynamically adjusted
     
     // MARK: - Private Properties
     private var arSession: ARSession?
@@ -73,13 +85,84 @@ class NavigationViewModel: ObservableObject {
         
         availableDestinations = map.beacons.filter { beacon in
             beacon.isAccessible && !beacon.isObstacle
-        }.sorted { $0.name < $1.name }
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         
         print("🧭 Navigation initialized")
         print("   Available destinations: \(availableDestinations.count)")
     }
     
-    // MARK: - Destination Selection
+    // MARK: - Voice: select by name with fuzzy match
+    
+    /// Voice-friendly entry point. Attempts to match a destination name and, if found (or unambiguous),
+    /// starts navigation immediately.
+    func selectDestination(named raw: String,
+                           session: ARSession,
+                           currentPosition: simd_float3) async -> DestinationSelectionResult {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .notFound }
+        
+        let candidates = fuzzyMatchDestinations(query: trimmed)
+        guard !candidates.isEmpty else { return .notFound }
+        
+        if candidates.count == 1 {
+            self.selectDestination(candidates[0], currentPosition: currentPosition, session: session)
+            return .success(candidates[0].name)
+        }
+        
+        // If multiple candidates, prefer exact/starts-with/contains ranking; if still >1, return ambiguous
+        let ranked = rank(candidates: candidates, for: trimmed)
+        if ranked.count > 1 {
+            return .ambiguous(Array(ranked.prefix(3)))
+        } else if let only = ranked.first {
+            self.selectDestination(only, currentPosition: currentPosition, session: session)
+            return .success(only.name)
+        }
+        return .notFound
+    }
+    
+    private func fuzzyMatchDestinations(query: String) -> [Beacon] {
+        let q = normalize(query)
+        if q.isEmpty { return [] }
+        // 1) exact (case/diacritics-insensitive)
+        let exact = availableDestinations.filter { normalize($0.name) == q }
+        if !exact.isEmpty { return exact }
+        // 2) starts-with
+        let starts = availableDestinations.filter { normalize($0.name).hasPrefix(q) }
+        if !starts.isEmpty { return starts }
+        // 3) contains
+        let contains = availableDestinations.filter { normalize($0.name).contains(q) }
+        if !contains.isEmpty { return contains }
+        // 4) whitespace-insensitive contains (e.g., "conf room a" vs "conference room a")
+        let nowhiteQ = q.replacingOccurrences(of: " ", with: "")
+        let nowhite = availableDestinations.filter {
+            normalize($0.name).replacingOccurrences(of: " ", with: "").contains(nowhiteQ)
+        }
+        return nowhite
+    }
+    
+    private func rank(candidates: [Beacon], for query: String) -> [Beacon] {
+        let q = normalize(query)
+        return candidates.sorted { a, b in
+            let an = normalize(a.name)
+            let bn = normalize(b.name)
+            // exact > starts-with > contains > length proximity
+            if an == q, bn != q { return true }
+            if bn == q, an != q { return false }
+            if an.hasPrefix(q), !bn.hasPrefix(q) { return true }
+            if bn.hasPrefix(q), !an.hasPrefix(q) { return false }
+            // shorter edit distance first (very lightweight proxy using length diff)
+            let ad = abs(Int(an.count) - Int(q.count))
+            let bd = abs(Int(bn.count) - Int(q.count))
+            return ad < bd
+        }
+    }
+    
+    private func normalize(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+         .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    // MARK: - Destination Selection (by Beacon)
     
     func selectDestination(_ beacon: Beacon, currentPosition: simd_float3, session: ARSession) {
         self.destinationBeacon = beacon
@@ -125,6 +208,15 @@ class NavigationViewModel: ObservableObject {
             return
         }
         
+        // === Dynamic veil based on scene brightness ===
+        if let le = frame.lightEstimate {
+            ambientLightIntensity = Float(le.ambientIntensity) // ~0..2000+
+            let normalized = min(2.0, Double(ambientLightIntensity) / 1000.0)
+            // brighter scene => darker veil (for contrast), clamped 0.5..0.9
+            veilOpacity = max(0.5, min(0.9, 0.5 + 0.2 * normalized))
+        }
+        
+        // === Position/heading & distances ===
         let currentPosition3D = CoordinateTransformManager.extractPosition(from: frame.camera)
         let currentHeading = CoordinateTransformManager.extractHeading(from: frame.camera)
         
@@ -148,6 +240,7 @@ class NavigationViewModel: ObservableObject {
         )
         
         let remainingDistance = currentPath?.distance(from: currentWaypointIndex) ?? 0
+        let totalPathDistance = currentPath?.totalDistance ?? remainingDistance
         let estimatedTime = TimeInterval(remainingDistance / 1.2) // ~1.2 m/s walking
         
         progress = NavigationProgress(
@@ -157,7 +250,8 @@ class NavigationViewModel: ObservableObject {
             estimatedTimeRemaining: estimatedTime,
             currentHeading: currentHeading,
             targetHeading: targetHeading,
-            headingError: headingError
+            headingError: headingError,
+            totalPathDistance: totalPathDistance
         )
         
         if CoordinateTransformManager.hasArrived(
@@ -206,7 +300,6 @@ class NavigationViewModel: ObservableObject {
                 if let nextDest = slice.first(where: { $0.type == .destination }) {
                     return nextDest.name.isEmpty ? "next destination" : nextDest.name
                 }
-                // Fallback: if none marked as destination, try immediate next waypoint
                 if let next = nextWaypoint {
                     return next.name.isEmpty ? "next destination" : next.name
                 }
@@ -216,7 +309,6 @@ class NavigationViewModel: ObservableObject {
             if let y = nextDestinationName {
                 message = "\(arrivedAtX), now proceed to \(y)"
             } else {
-                // No clear next destination—default to simple arrived phrasing
                 message = arrivedAtX
             }
         }
@@ -235,7 +327,6 @@ class NavigationViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             await MainActor.run {
                 self.showArrivalMessage = false
-                // Keep message nil after the toast; the dock will handle .arrived state text itself.
                 self.arrivalMessage = nil
             }
         }

@@ -126,13 +126,22 @@ struct Waypoint: Codable, Identifiable, Equatable {
     let waypointType: WaypointType
     let isAccessible: Bool
     
+    // New: list of beacon IDs this waypoint connects between (A↔B via this WP)
+    // Persisted as "connected_beacons" in JSON
+    var connectedBeacons: [String]
+    
     // Optional - editable later
     var description: String?
     var audioLandmark: String?
     
-    init(name: String, coordinates: simd_float3, roomId: String,
-         waypointType: WaypointType = .navigation, isAccessible: Bool = true,
-         description: String? = nil, audioLandmark: String? = nil) {
+    init(name: String,
+         coordinates: simd_float3,
+         roomId: String,
+         waypointType: WaypointType = .navigation,
+         isAccessible: Bool = true,
+         description: String? = nil,
+         audioLandmark: String? = nil,
+         connectedBeacons: [String] = []) {
         self.id = UUID()
         self.name = name
         self.coordinates = coordinates
@@ -141,11 +150,44 @@ struct Waypoint: Codable, Identifiable, Equatable {
         self.isAccessible = isAccessible
         self.description = description
         self.audioLandmark = audioLandmark
+        self.connectedBeacons = connectedBeacons
     }
     
     enum WaypointType: String, Codable {
         case navigation = "navigation"
         case safety = "safety"
         case accessibility = "accessibility"
+    }
+    
+    // Custom Codable to remain backward-compatible (default [] when field missing)
+    private enum CodingKeys: String, CodingKey {
+        case id, name, coordinates, roomId, waypointType, isAccessible, description, audioLandmark
+        case connectedBeacons = "connected_beacons"
+    }
+    
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        coordinates = try c.decode(simd_float3.self, forKey: .coordinates)
+        roomId = try c.decode(String.self, forKey: .roomId)
+        waypointType = try c.decode(WaypointType.self, forKey: .waypointType)
+        isAccessible = try c.decode(Bool.self, forKey: .isAccessible)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        audioLandmark = try c.decodeIfPresent(String.self, forKey: .audioLandmark)
+        connectedBeacons = try c.decodeIfPresent([String].self, forKey: .connectedBeacons) ?? []
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(coordinates, forKey: .coordinates)
+        try c.encode(roomId, forKey: .roomId)
+        try c.encode(waypointType, forKey: .waypointType)
+        try c.encode(isAccessible, forKey: .isAccessible)
+        try c.encodeIfPresent(description, forKey: .description)
+        try c.encodeIfPresent(audioLandmark, forKey: .audioLandmark)
+        try c.encode(connectedBeacons, forKey: .connectedBeacons)
     }
 }

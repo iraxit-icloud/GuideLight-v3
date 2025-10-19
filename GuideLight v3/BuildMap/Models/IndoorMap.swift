@@ -203,7 +203,9 @@ extension IndoorMap {
                     "description": waypoint.description ?? "",
                     "audioLandmark": waypoint.audioLandmark ?? waypoint.name,
                     "waypointType": waypoint.waypointType.rawValue,
-                    "isAccessible": waypoint.isAccessible
+                    "isAccessible": waypoint.isAccessible,
+                    // NEW: persist beacon links as snake_case per request
+                    "connected_beacons": waypoint.connectedBeacons
                 ]
             },
             "edgeComputationRules": [

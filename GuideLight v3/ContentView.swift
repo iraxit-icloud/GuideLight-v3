@@ -1,3 +1,10 @@
+//
+//  ContentView.swift
+//  GuideLight v3
+//
+//  Landing page with pure speech recognition - no Porcupine
+//
+
 import SwiftUI
 import UIKit
 
@@ -9,10 +16,14 @@ enum HubDestination: String, Identifiable {
 
 struct ContentView: View {
     @State private var showingPathNavigation = false
-    @AppStorage("voiceFirstEnabled") private var voiceFirstEnabled: Bool = UIAccessibility.isVoiceOverRunning
+    @State private var showHelpSheet = false
+    @StateObject private var speechCenter = SimpleSpeechCommandCenter.shared
 
-    // Voice & haptics
-    @StateObject private var voice = VoiceGuide.shared
+    // Voice handoff
+    @State private var pendingVoiceDestination: String? = nil
+    @State private var launchedFromVoice = false
+
+    // Haptics (kept local to UI)
     private let hapticLight = UIImpactFeedbackGenerator(style: .light)
     private let hapticHeavy = UIImpactFeedbackGenerator(style: .heavy)
 
@@ -22,6 +33,8 @@ struct ContentView: View {
     private let brandNavy   = Color(red: 0.11, green: 0.17, blue: 0.29)
     private let brandYellow = Color(red: 1.00, green: 0.84, blue: 0.35)
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         NavigationView {
             ZStack {
@@ -29,114 +42,270 @@ struct ContentView: View {
                 brandNavy.ignoresSafeArea()
 
                 VStack(spacing: 24) {
-                    // MARK: Portal Logo + Title + short story line
-                    VStack(spacing: 14) {
+                    // MARK: Logo + Title + Tagline
+                    VStack(spacing: 8) {
                         ARPortalLogoView(imageName: "GuideLightLogo", size: 220)
-                            .padding(.top, 24)
+                            .padding(.top, 12)
+                            .accessibilityHidden(true)
 
                         Text("GuideLight")
-                            .font(.system(size: 38, weight: .semibold, design: .rounded))
+                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .minimumScaleFactor(0.8)
                             .foregroundStyle(.white)
+                            .accessibilityAddTraits(.isHeader)
 
-                        Text("Your voice, your steps, your guide.")
-                            .font(.title3)
-                            .foregroundStyle(.white.opacity(0.75))
+                        Text("Indoor navigation companion for the blind")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.9))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 24)
                             .accessibilityHidden(true)
+                        
+                        Text("Say \"Hey GuideLight\" followed by your command")
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .minimumScaleFactor(0.9)
+                            .padding(.horizontal, 32)
+                            .accessibilityHidden(true)
                     }
+                    .accessibilitySortPriority(2)
 
-                    // MARK: Primary CTA – Start Navigation
-                    Button {
-                        select(.navigation)
-                        voice.speak(.startingNav)
-                        showingPathNavigation = true
-                    } label: {
+                    // MARK: Primary CTA — Start Navigation (high contrast, large target)
+                    Button(action: startNavTap) {
                         Text("Start Navigation")
                             .font(.title2.weight(.bold))
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 20)
+                            .padding(.vertical, 24)
                             .background(
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(.white, lineWidth: 2)
+                                    .fill(brandYellow)
                             )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                    .stroke(Color.white.opacity(0.25), lineWidth: 2.5)
+                            )
+                            .foregroundStyle(brandNavy)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 28)
-                    .foregroundStyle(.white)
-                    .accessibilityLabel("Start navigation. Double tap to begin.")
-                    .accessibilityHint("Opens indoor navigation.")
+                    .padding(.bottom, 60)
+                    .accessibilityLabel("Start Navigation")
+                    .accessibilityHint("Double-tap to begin indoor navigation.")
+                    .accessibilitySortPriority(3)
 
                     Spacer(minLength: 0)
                 }
 
-                // MARK: Settings gear (bottom-right)
-                NavigationLink(destination: SettingsView()) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .background(.white.opacity(0.08))
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
-                        .accessibilityLabel("Settings")
-                        .accessibilityHint("Opens app settings and map management")
-                }
-                .simultaneousGesture(TapGesture().onEnded {
-                    select(.settings)
-                })
-                .padding(.trailing, 20)
-                .padding(.bottom, 28)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            }
+                // MARK: Bottom controls: Help (left) + Settings (right)
+                HStack {
+                    // HELP (bottom-left)
+                    Button {
+                        hapticLight.impactOccurred()
+                        NotificationCenter.default.post(name: .glHelpOpened, object: nil)
+                        showHelpSheet = true
+                    } label: {
+                        BottomOrb(icon: "questionmark.circle")
+                    }
+                    .accessibilityLabel("Help")
+                    .accessibilityHint("Opens help and about GuideLight.")
 
-            // MARK: Swipe shortcuts (right swipe to start nav)
+                    Spacer(minLength: 0)
+
+                    // SETTINGS (bottom-right)
+                    NavigationLink(destination: SettingsView()) {
+                        BottomOrb(icon: "gearshape.fill")
+                    }
+                    .simultaneousGesture(TapGesture().onEnded {
+                        hapticLight.impactOccurred()
+                        NotificationCenter.default.post(name: .glSettingsOpened, object: nil)
+                    })
+                    .accessibilityLabel("Settings")
+                    .accessibilityHint("Opens app settings and map management.")
+                }
+                .padding(.horizontal, 28)
+                .padding(.bottom, 30)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .zIndex(2)
+
+                // MARK: Full-screen "Tap anywhere to start"
+                Button(action: startNavTap) {
+                    Color.clear
+                }
+                .contentShape(Rectangle())
+                .padding(.bottom, 96)
+                .accessibilityHidden(true)
+
+                // MARK: Voice Debug Overlay
+                if speechCenter.isListening {
+                    debugVoiceOverlay
+                }
+            }
+            // Right-swipe to start
             .gesture(
                 DragGesture(minimumDistance: 20).onEnded { value in
                     let dx = value.translation.width
                     let dy = value.translation.height
-                    if abs(dx) > abs(dy) {
-                        if dx > swipeThreshold {
-                            select(.navigation)
-                            voice.speak(.startingNav)
-                            showingPathNavigation = true
-                        }
-                    } else if dy < -swipeThreshold {
-                        // future: swipe up for settings or help
+                    if abs(dx) > abs(dy), dx > swipeThreshold {
+                        startNavTap()
                     }
                 }
             )
             .navigationBarHidden(true)
             .fullScreenCover(isPresented: $showingPathNavigation) {
-                PathNavigationLauncherView()
+                PathNavigationLauncherView(
+                    initialDestinationName: pendingVoiceDestination,
+                    fromVoice: launchedFromVoice
+                )
             }
+            .accessibilityAction(.magicTap, startNavTap)
+            .sheet(isPresented: $showHelpSheet) { HelpSheet() }
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .onAppear {
-            hapticLight.prepare()
-            hapticHeavy.prepare()
-
-            // Voice-first cues
-            if voiceFirstEnabled {
-                voice.speak(.welcome)
-                voice.speak(.startPrompt)
-                voice.speak(.homeHelp)
+            setupHomeScreen()
+        }
+        .onDisappear {
+            speechCenter.stopListening()
+        }
+        // Help command handling
+        .onReceive(NotificationCenter.default.publisher(for: .glHelpOpened)) { _ in
+            print("[ContentView] Help command received")
+            showHelpSheet = true
+        }
+        // Voice command handling
+        .onReceive(NotificationCenter.default.publisher(for: .glVoiceNavigateCommand)) { note in
+            print("[ContentView] Voice navigate command received")
+            let dest = (note.userInfo?["destination"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if dest?.isEmpty != false {
+                print("[ContentView] Starting navigation")
+                startNavTap()
             } else {
-                UIAccessibility.post(notification: .announcement,
-                                     argument: "Home. Start Navigation button, or tap the gear for Settings.")
+                print("[ContentView] Starting navigation with destination: \(dest ?? "")")
+                startNavVoice(destination: dest)
             }
         }
     }
 
-    private func select(_ dest: HubDestination) {
+    // MARK: - Voice Debug Overlay
+    private var debugVoiceOverlay: some View {
+        VStack {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle()
+                            .fill(speechCenter.isListening ? .green : .red)
+                            .frame(width: 8, height: 8)
+                        Text("Speech: \(speechCenter.isListening ? "ON" : "OFF")")
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                    }
+                    
+                    if !speechCenter.lastHeardText.isEmpty {
+                        Text("Heard: \(speechCenter.lastHeardText)")
+                            .font(.caption2)
+                            .foregroundColor(.yellow)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.black.opacity(0.7))
+            )
+            .padding(.horizontal)
+            .padding(.top, 50)
+            
+            Spacer()
+        }
+    }
+
+    // MARK: - Setup Methods
+    private func setupHomeScreen() {
+        hapticLight.prepare()
+        hapticHeavy.prepare()
+        
+        // Announce screen for VoiceOver users
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "Home. Say Hey GuideLight followed by your command. Start Navigation button. Help bottom left. Settings bottom right."
+        )
+        
+        // Start continuous speech recognition
+        speechCenter.startListening()
+        
+        print("[ContentView] Home screen setup complete - speech recognition active")
+    }
+
+    // MARK: Actions
+    private func startNavTap() {
+        launchedFromVoice = false
+        pendingVoiceDestination = nil
         hapticHeavy.impactOccurred()
-        if voiceFirstEnabled {
-            switch dest {
-            case .navigation: voice.speak(.pathfinderSel)
-            case .settings:   voice.speak(.settingsSel)
+        showingPathNavigation = true
+    }
+
+    private func startNavVoice(destination: String?) {
+        launchedFromVoice = true
+        pendingVoiceDestination = destination
+        hapticHeavy.impactOccurred()
+        showingPathNavigation = true
+    }
+}
+
+// MARK: - UI helpers
+
+/// Consistent circular bottom button orb
+private struct BottomOrb: View {
+    let icon: String
+    var body: some View {
+        Circle()
+            .fill(.white.opacity(0.10))
+            .frame(width: 56, height: 56)
+            .overlay(
+                Image(systemName: icon)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+            )
+            .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1.5))
+            .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
+    }
+}
+
+/// Help sheet
+private struct HelpSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("GuideLight Voice Commands")
+                    .font(.title.bold())
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("• \"Hey GuideLight, start navigation\"")
+                    Text("• \"Hey GuideLight, help\"")
+                    Text("• \"Hey GuideLight, settings\"")
+                    Text("• \"Hey GuideLight, take me to [destination]\"")
+                    Text("• You can also tap buttons to use the app")
+                }
+                .font(.body)
+
+                Spacer()
+            }
+            .padding()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
             }
         }
     }
 }
+
