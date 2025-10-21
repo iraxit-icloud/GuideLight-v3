@@ -287,29 +287,51 @@ class NavigationViewModel: ObservableObject {
         // Determine if this is the final waypoint
         let isFinal = (currentWaypointIndex >= path.waypoints.count - 1)
         
-        // Compose arrival message
-        let arrivedAtX: String = waypoint.name.isEmpty ? "Arrived" : "Arrived at \(waypoint.name)"
+        // MODIFIED: Handle start position differently
         var message: String
         
         if isFinal {
             message = "Arrived"
         } else {
-            // Find the next DESTINATION-type waypoint ahead (not just the immediate next)
-            let nextDestinationName: String? = {
-                let slice = path.waypoints.suffix(from: currentWaypointIndex + 1)
-                if let nextDest = slice.first(where: { $0.type == .destination }) {
-                    return nextDest.name.isEmpty ? "next destination" : nextDest.name
+            // MODIFIED: Check if this is the start position (type .start)
+            if waypoint.type == .start {
+                // For start position, just say "Proceed to [destination]"
+                let nextDestinationName: String? = {
+                    let slice = path.waypoints.suffix(from: currentWaypointIndex + 1)
+                    if let nextDest = slice.first(where: { $0.type == .destination }) {
+                        return nextDest.name.isEmpty ? "next destination" : nextDest.name
+                    }
+                    if let next = nextWaypoint {
+                        return next.name.isEmpty ? "next destination" : next.name
+                    }
+                    return nil
+                }()
+                
+                if let destinationName = nextDestinationName {
+                    message = "Proceed to \(destinationName)"
+                } else {
+                    message = "Proceed to destination"
                 }
-                if let next = nextWaypoint {
-                    return next.name.isEmpty ? "next destination" : next.name
-                }
-                return nil
-            }()
-            
-            if let y = nextDestinationName {
-                message = "\(arrivedAtX), now proceed to \(y)"
             } else {
-                message = arrivedAtX
+                // For other waypoints, keep the original logic
+                let arrivedAtX: String = waypoint.name.isEmpty ? "Arrived" : "Arrived at \(waypoint.name)"
+                
+                let nextDestinationName: String? = {
+                    let slice = path.waypoints.suffix(from: currentWaypointIndex + 1)
+                    if let nextDest = slice.first(where: { $0.type == .destination }) {
+                        return nextDest.name.isEmpty ? "next destination" : nextDest.name
+                    }
+                    if let next = nextWaypoint {
+                        return next.name.isEmpty ? "next destination" : next.name
+                    }
+                    return nil
+                }()
+                
+                if let y = nextDestinationName {
+                    message = "\(arrivedAtX), now proceed to \(y)"
+                } else {
+                    message = arrivedAtX
+                }
             }
         }
         

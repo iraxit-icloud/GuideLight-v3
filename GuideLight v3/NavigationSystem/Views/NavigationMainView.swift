@@ -193,7 +193,7 @@ struct NavigationMainView: View {
         }
     }
     
-    // MARK: - Navigation Overlay (EXISTING)
+    // MARK: - Navigation Overlay (RESTORED - Always show dock)
     private func navigationOverlay(navViewModel: NavigationViewModel) -> some View {
         ZStack {
             VStack {
@@ -304,41 +304,102 @@ struct NavigationMainView: View {
     }
 }
 
-// MARK: - Floating Curved Dock (EXISTING)
+// MARK: - Floating Curved Dock (SHOWS ARRIVED MESSAGE)
 private struct FloatingDockView: View {
     @ObservedObject var viewModel: NavigationViewModel
     let formatTimeShort: (TimeInterval) -> String
     let formatDistance: (Float) -> String
+    
+    // User settings from Settings app - pulled from AppStorage like in SettingsView
     @AppStorage("stepsPerMeter") private var stepsPerMeter: Double = 1.35
     @AppStorage("walkingSpeedMps") private var walkingSpeedMps: Double = 1.20
     
     var body: some View {
         HStack(spacing: 16) {
+            // EXISTING: Keep the compass
             MiniCompassView(headingError: Double(viewModel.progress?.headingError ?? 0))
                 .frame(width: 72, height: 72)
             
-            VStack(alignment: .leading, spacing: 4) {
-                if let progress = viewModel.progress {
-                    HStack {
-                        RoundedChip(text: formatDistance(progress.distanceToNextWaypoint))
-                        RoundedChip(text: formatTimeShort(progress.estimatedTimeRemaining))
-                    }
-                    if let currentWaypoint = viewModel.currentWaypoint {
-                        Text(currentWaypoint.name.isEmpty ? "Next waypoint" : currentWaypoint.name)
-                            .font(.caption.weight(.medium))
+            // MODIFIED: Handle arrived state
+            VStack(alignment: .leading, spacing: 6) {
+                // Check if navigation has arrived
+                if case .arrived = viewModel.navigationState {
+                    // Show "Arrived at <destination>" message
+                    HStack(spacing: 8) {
+                        Text("Arrived at \(getFinalDestinationName())")
+                            .font(.body.weight(.bold))
                             .foregroundColor(.white.opacity(0.9))
+                        Spacer()
+                    }
+                    .lineLimit(1)
+                } else if let progress = viewModel.progress, let path = viewModel.currentPath {
+                    // Normal navigation - check if we're at the final destination already
+                    let isAtFinalDestination = isNavigatingToFinalDestination()
+                    
+                    if isAtFinalDestination {
+                        // Show only Final line when navigating directly to final destination
+                        let stepsToFinal = Int((progress.distanceToNextWaypoint * Float(stepsPerMeter)).rounded())
+                        HStack(spacing: 8) {
+                            Text("Final:")
+                                .font(.body.weight(.bold))
+                                .foregroundColor(.white.opacity(0.7))
+                            Text(getCurrentTargetName())
+                                .font(.body.weight(.bold))
+                                .foregroundColor(.white.opacity(0.9))
+                            Spacer()
+                            Text("(\(stepsToFinal) steps)")
+                                .font(.body.weight(.bold))
+                                .foregroundColor(.cyan)
+                        }
+                        .lineLimit(1)
+                    } else {
+                        // Show both Next and Final lines for multi-step navigation
+                        
+                        // Next line
+                        let stepsToNext = Int((progress.distanceToNextWaypoint * Float(stepsPerMeter)).rounded())
+                        HStack(spacing: 8) {
+                            Text("Next:")
+                                .font(.body.weight(.bold))
+                                .foregroundColor(.white.opacity(0.7))
+                            Text(getCurrentTargetName())
+                                .font(.body.weight(.bold))
+                                .foregroundColor(.white.opacity(0.9))
+                            Spacer()
+                            Text("(\(stepsToNext) steps)")
+                                .font(.body.weight(.bold))
+                                .foregroundColor(.cyan)
+                        }
+                        .lineLimit(1)
+                        
+                        // Final line
+                        if let finalDestination = findFinalDestination() {
+                            let stepsToFinal = Int((progress.totalDistanceRemaining * Float(stepsPerMeter)).rounded())
+                            HStack(spacing: 8) {
+                                Text("Final:")
+                                    .font(.body.weight(.bold))
+                                    .foregroundColor(.white.opacity(0.7))
+                                Text(finalDestination.name)
+                                    .font(.body.weight(.bold))
+                                    .foregroundColor(.white.opacity(0.9))
+                                Spacer()
+                                Text("(\(stepsToFinal) steps)")
+                                    .font(.body.weight(.bold))
+                                    .foregroundColor(.cyan)
+                            }
                             .lineLimit(1)
+                        }
                     }
                 } else {
+                    // EXISTING: Keep the calculating text
                     Text("Calculating route...")
-                        .font(.caption)
+                        .font(.headline)
                         .foregroundColor(.white.opacity(0.7))
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.vertical, 20)
         .background(
             RoundedRectangle(cornerRadius: 24)
                 .fill(.black.opacity(viewModel.veilOpacity))
@@ -348,6 +409,113 @@ private struct FloatingDockView: View {
                 )
         )
         .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+    }
+    
+    // MARK: - Helper Functions
+    
+    /// Get the final destination name for arrived message
+    private func getFinalDestinationName() -> String {
+        guard let path = viewModel.currentPath else {
+            return "destination"
+        }
+        
+        // Find the last destination waypoint in the path
+        if let finalDestination = path.waypoints.last(where: { $0.type == .destination }) {
+            return finalDestination.name.isEmpty ? "destination" : finalDestination.name
+        }
+        
+        // Fallback to last waypoint
+        if let lastWaypoint = path.waypoints.last {
+            return lastWaypoint.name.isEmpty ? "destination" : lastWaypoint.name
+        }
+        
+        return "destination"
+    }
+    
+    /// Check if we're navigating directly to the final destination (no intermediate waypoints)
+    private func isNavigatingToFinalDestination() -> Bool {
+        guard let path = viewModel.currentPath,
+              viewModel.currentWaypointIndex < path.waypoints.count else {
+            return false
+        }
+        
+        // Get current target waypoint
+        let currentTarget = path.waypoints[viewModel.currentWaypointIndex]
+        
+        // Skip start waypoint
+        if currentTarget.type == .start {
+            // Check if the next waypoint after start is the final destination
+            if viewModel.currentWaypointIndex + 1 < path.waypoints.count {
+                let nextWaypoint = path.waypoints[viewModel.currentWaypointIndex + 1]
+                return nextWaypoint.type == .destination && isLastDestination(nextWaypoint)
+            }
+            return false
+        }
+        
+        // Check if current target is the final destination
+        return currentTarget.type == .destination && isLastDestination(currentTarget)
+    }
+    
+    /// Check if a waypoint is the last destination in the path
+    private func isLastDestination(_ waypoint: NavigationWaypoint) -> Bool {
+        guard let path = viewModel.currentPath else { return false }
+        
+        // Find the last destination waypoint in the path
+        if let lastDestination = path.waypoints.last(where: { $0.type == .destination }) {
+            return waypoint.id == lastDestination.id
+        }
+        
+        return false
+    }
+    
+    /// Get the name of the current navigation target
+    private func getCurrentTargetName() -> String {
+        guard let path = viewModel.currentPath,
+              viewModel.currentWaypointIndex < path.waypoints.count else {
+            return "Destination"
+        }
+        
+        let currentTarget = path.waypoints[viewModel.currentWaypointIndex]
+        
+        // Skip start waypoint
+        if currentTarget.type == .start {
+            if viewModel.currentWaypointIndex + 1 < path.waypoints.count {
+                let nextWaypoint = path.waypoints[viewModel.currentWaypointIndex + 1]
+                return getWaypointDisplayName(nextWaypoint)
+            }
+        }
+        
+        return getWaypointDisplayName(currentTarget)
+    }
+    
+    /// Find the final destination waypoint
+    private func findFinalDestination() -> (name: String, distance: Float)? {
+        guard let path = viewModel.currentPath,
+              let progress = viewModel.progress else {
+            return nil
+        }
+        
+        // Find the last waypoint with type .destination
+        if let finalDestination = path.waypoints.last(where: { $0.type == .destination }) {
+            let name = getWaypointDisplayName(finalDestination)
+            return (name: name, distance: progress.totalDistanceRemaining)
+        }
+        
+        return nil
+    }
+    
+    /// Get appropriate display name for a waypoint based on its type
+    private func getWaypointDisplayName(_ waypoint: NavigationWaypoint) -> String {
+        switch waypoint.type {
+        case .start:
+            return "Start"
+        case .intermediate:
+            return waypoint.name.isEmpty ? "Waypoint" : waypoint.name
+        case .doorway:
+            return waypoint.name.isEmpty ? "Doorway" : waypoint.name
+        case .destination:
+            return waypoint.name.isEmpty ? "Destination" : waypoint.name
+        }
     }
 }
 

@@ -2,17 +2,9 @@
 //  ARVisualizationHelpers.swift
 //  GuideLight v3
 //
-//  Created by Indraneel Rakshit on 10/14/25.
+//  Glowing chevron breadcrumbs + glowing ring markers (Next + Destination)
+//  Includes camera HDR/exposure helper for extra "neon" punch.
 //
-
-
-//
-//  ARVisualizationHelpers.swift
-//  GuideLight v3
-//
-//  Created by Indraneel Rakshit on 10/12/25.
-//
-
 
 import Foundation
 import ARKit
@@ -22,13 +14,27 @@ import UIKit
 // MARK: - AR Visualization Helpers
 class ARVisualizationHelpers {
     
-    // MARK: - Beacon Marker Creation
+    // MARK: Camera punch (call once after ARSCNView is created)
+    /// Boosts HDR/exposure so emissive materials pop more (safe no-op if unavailable).
+    @MainActor
+    static func applyCameraGlowPunch(to sceneView: ARSCNView) {
+        func setCamera(_ cam: SCNCamera) {
+            cam.wantsHDR = true
+            cam.wantsExposureAdaptation = true
+            cam.exposureOffset = 0.0       // try +0.3 for even more glow
+            cam.minimumExposure = -1.0
+            cam.maximumExposure =  1.0
+        }
+        if let cam = sceneView.pointOfView?.camera { setCamera(cam) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak sceneView] in
+            if let cam = sceneView?.pointOfView?.camera { setCamera(cam) }
+        }
+    }
     
-    /// Create pulsating AR marker for a beacon during calibration
+    // MARK: - Beacon Marker (calibration) — unchanged logic
     static func createBeaconMarker(beacon: Beacon, in sceneView: ARSCNView) -> SCNNode {
         let node = SCNNode()
         
-        // 1. Pulsating sphere
         let sphere = SCNSphere(radius: 0.08)
         sphere.firstMaterial?.diffuse.contents = UIColor.cyan
         sphere.firstMaterial?.emission.contents = UIColor.cyan
@@ -36,15 +42,12 @@ class ARVisualizationHelpers {
         let sphereNode = SCNNode(geometry: sphere)
         node.addChildNode(sphereNode)
         
-        // Pulsating animation
         let scaleUp = SCNAction.scale(to: 1.3, duration: 0.8)
         scaleUp.timingMode = .easeInEaseOut
         let scaleDown = SCNAction.scale(to: 1.0, duration: 0.8)
         scaleDown.timingMode = .easeInEaseOut
-        let pulse = SCNAction.sequence([scaleUp, scaleDown])
-        sphereNode.runAction(SCNAction.repeatForever(pulse))
+        sphereNode.runAction(.repeatForever(.sequence([scaleUp, scaleDown])))
         
-        // 2. Vertical line to floor (always downward)
         let h = abs(beacon.position.y)
         let line = SCNCylinder(radius: 0.01, height: CGFloat(max(0.05, h)))
         line.firstMaterial?.diffuse.contents = UIColor.cyan.withAlphaComponent(0.5)
@@ -52,108 +55,159 @@ class ARVisualizationHelpers {
         lineNode.position = SCNVector3(0, -Float(line.height) / 2.0, 0)
         node.addChildNode(lineNode)
         
-        // 3. Text label (billboard to camera)
-        let textGeometry = SCNText(string: beacon.name, extrusionDepth: 0.01)
-        textGeometry.font = UIFont.boldSystemFont(ofSize: 0.08)
-        textGeometry.firstMaterial?.diffuse.contents = UIColor.white
-        textGeometry.firstMaterial?.isDoubleSided = true
-        let textNode = SCNNode(geometry: textGeometry)
+        let nameNode = makeFloatingLabel(text: beacon.name, textColor: .white, bgOpacity: 0.85)
+        nameNode.position = SCNVector3(0, 0.22, 0)
+        node.addChildNode(nameNode)
         
-        // Center text
-        let (min, max) = textNode.boundingBox
-        let textWidth = max.x - min.x
-        textNode.position = SCNVector3(-textWidth / 2, 0.15, 0)
-        textNode.scale = SCNVector3(0.01, 0.01, 0.01)
-        textNode.constraints = [SCNBillboardConstraint()]     // 🔧 always face camera
-        
-        node.addChildNode(textNode)
-        
-        // 4. Distance label (will be updated)
-        let distanceText = SCNText(string: "0.0m", extrusionDepth: 0.01)
-        distanceText.font = UIFont.systemFont(ofSize: 0.06)
-        distanceText.firstMaterial?.diffuse.contents = UIColor.white
-        let distanceNode = SCNNode(geometry: distanceText)
-        distanceNode.position = SCNVector3(-0.05, 0.22, 0)
-        distanceNode.scale = SCNVector3(0.01, 0.01, 0.01)
+        let distanceNode = makeFloatingLabel(text: "0.0m", textColor: .white, bgOpacity: 0.6)
         distanceNode.name = "distanceLabel"
-        distanceNode.constraints = [SCNBillboardConstraint()] // 🔧 face camera
+        distanceNode.position = SCNVector3(0, 0.30, 0)
         node.addChildNode(distanceNode)
         
-        // Set position
         node.position = SCNVector3(beacon.position.x, beacon.position.y, beacon.position.z)
-        
         return node
     }
     
-    // MARK: - Waypoint Marker Creation
-    
-    /// Create AR marker for navigation waypoint
-    static func createWaypointMarker(waypoint: NavigationWaypoint, isNext: Bool) -> SCNNode {
+    // MARK: - NEW: Glowing rotating ring (used for Next + Destination)
+    /// Creates a glowing ring with subtle shell, inner glow, ground halo, slow rotation, and optional label.
+    static func createGlowingRing(at position: simd_float3,
+                                  color: UIColor,
+                                  labelText: String?) -> SCNNode {
         let node = SCNNode()
         
-        // Color based on type
-        let color: UIColor
-        switch waypoint.type {
-        case .start:
-            color = .green
-        case .intermediate:
-            color = .yellow
-        case .doorway:
-            color = .orange
-        case .destination:
-            color = .red
+        // Core torus
+        let torus = SCNTorus(ringRadius: 0.18, pipeRadius: 0.015)
+        let core = SCNMaterial()
+        core.lightingModel = .constant
+        core.diffuse.contents   = color.withAlphaComponent(0.95)
+        core.emission.contents  = color
+        core.blendMode          = .add
+        core.writesToDepthBuffer = false
+        if #available(iOS 15.0, *) { core.emission.intensity = 1.6 }
+        torus.materials = [core]
+        
+        let ring = SCNNode(geometry: torus)
+        ring.eulerAngles = SCNVector3(Float.pi / 2, 0, 0) // vertical ring facing camera
+        node.addChildNode(ring)
+        
+        // Subtle glow shell (slightly larger scale)
+        let shellGeom = torus.copy() as! SCNGeometry
+        let shellMat = core.copy() as! SCNMaterial
+        shellMat.diffuse.contents  = color.withAlphaComponent(0.25)
+        shellMat.emission.contents = color.withAlphaComponent(0.35)
+        if #available(iOS 15.0, *) { shellMat.emission.intensity = 1.9 }
+        shellGeom.materials = [shellMat]
+        let shell = SCNNode(geometry: shellGeom)
+        shell.eulerAngles = ring.eulerAngles
+        shell.scale = SCNVector3(1.10, 1.10, 1.10)
+        node.addChildNode(shell)
+        
+        // Inner glow sphere
+        let inner = SCNNode(geometry: SCNSphere(radius: 0.06))
+        inner.geometry?.firstMaterial?.lightingModel = .constant
+        inner.geometry?.firstMaterial?.diffuse.contents  = color.withAlphaComponent(0.18)
+        inner.geometry?.firstMaterial?.emission.contents = color.withAlphaComponent(0.25)
+        inner.geometry?.firstMaterial?.blendMode = .add
+        node.addChildNode(inner)
+        
+        // Ground halo
+        let halo = makeGroundHalo(color: color, sizeMeters: 0.48)
+        halo.position = SCNVector3(0, -0.18, 0)
+        node.addChildNode(halo)
+        
+        // Slow spin
+        let rot = SCNAction.rotateBy(x: 0, y: CGFloat.pi * 2, z: 0, duration: 12.0)
+        ring.runAction(.repeatForever(rot))
+        shell.runAction(.repeatForever(rot))
+        
+        // Optional label
+        if let labelText {
+            let label = makeFloatingLabel(text: labelText, textColor: .white, bgOpacity: 0.9)
+            label.position = SCNVector3(0, 0.28, 0)
+            node.addChildNode(label)
         }
         
-        // Sphere marker
-        let radius: CGFloat = isNext ? 0.12 : 0.08
-        let sphere = SCNSphere(radius: radius)
-        sphere.firstMaterial?.diffuse.contents = color
-        sphere.firstMaterial?.emission.contents = color
-        sphere.firstMaterial?.transparency = 0.8
-        let sphereNode = SCNNode(geometry: sphere)
-        node.addChildNode(sphereNode)
-        
-        // Pulsate only if it's the next waypoint
-        if isNext {
-            let scaleUp = SCNAction.scale(to: 1.4, duration: 0.6)
-            scaleUp.timingMode = .easeInEaseOut
-            let scaleDown = SCNAction.scale(to: 1.0, duration: 0.6)
-            scaleDown.timingMode = .easeInEaseOut
-            let pulse = SCNAction.sequence([scaleUp, scaleDown])
-            sphereNode.runAction(SCNAction.repeatForever(pulse))
-        }
-        
-        // Vertical line (always downward)
-        let h = abs(waypoint.position.y)
-        let line = SCNCylinder(radius: 0.01, height: CGFloat(max(0.05, h)))
-        line.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.5)
-        let lineNode = SCNNode(geometry: line)
-        lineNode.position = SCNVector3(0, -Float(line.height) / 2.0, 0)
-        node.addChildNode(lineNode)
-        
-        // Text label (billboard)
-        if isNext {
-            let textGeometry = SCNText(string: waypoint.name, extrusionDepth: 0.01)
-            textGeometry.font = UIFont.boldSystemFont(ofSize: 0.1)
-            textGeometry.firstMaterial?.diffuse.contents = UIColor.white
-            let textNode = SCNNode(geometry: textGeometry)
-            
-            let (min, max) = textNode.boundingBox
-            let textWidth = max.x - min.x
-            textNode.position = SCNVector3(-textWidth / 2, 0.2, 0)
-            textNode.scale = SCNVector3(0.01, 0.01, 0.01)
-            textNode.constraints = [SCNBillboardConstraint()]  // 🔧 always face camera
-            
-            node.addChildNode(textNode)
-        }
-        
-        node.position = SCNVector3(waypoint.position.x, waypoint.position.y, waypoint.position.z)
-        
+        node.position = SCNVector3(position.x, position.y, position.z)
         return node
     }
     
-    // MARK: - Crosshair Alignment
+    // MARK: - Floating label (Sprite-like, billboard)
+    static func makeFloatingLabel(text: String, textColor: UIColor, bgOpacity: CGFloat) -> SCNNode {
+        let padding: CGFloat = 8
+        let font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor
+        ]
+        let size = (text as NSString).size(withAttributes: attributes)
+        let imgSize = CGSize(width: size.width + padding * 2, height: size.height + padding * 2)
+        
+        UIGraphicsBeginImageContextWithOptions(imgSize, false, 2.0)
+        let ctx = UIGraphicsGetCurrentContext()!
+        let rect = CGRect(origin: .zero, size: imgSize)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 12)
+        ctx.setFillColor(UIColor.black.withAlphaComponent(bgOpacity).cgColor)
+        ctx.addPath(path.cgPath)
+        ctx.fillPath()
+        (text as NSString).draw(in: CGRect(x: padding, y: padding, width: size.width, height: size.height),
+                                withAttributes: attributes)
+        let image = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        
+        let metersPerPoint: CGFloat = 0.0012
+        let plane = SCNPlane(width: imgSize.width * metersPerPoint, height: imgSize.height * metersPerPoint)
+        plane.cornerRadius = 0.02
+        let mat = SCNMaterial()
+        mat.diffuse.contents = image
+        mat.isDoubleSided = true
+        plane.materials = [mat]
+        
+        let node = SCNNode(geometry: plane)
+        node.constraints = [SCNBillboardConstraint()]
+        node.castsShadow = false
+        return node
+    }
     
+    // MARK: - Ground halo (soft radial puddle of light)
+    // NOTE: internal (not private) so the factory enum can call it.
+    static func makeGroundHalo(color: UIColor, sizeMeters: CGFloat) -> SCNNode {
+        let plane = SCNPlane(width: sizeMeters, height: sizeMeters)
+        let img = radialGlowImage(size: CGSize(width: 256, height: 256),
+                                  color: color,
+                                  innerAlpha: 0.55,
+                                  outerAlpha: 0.08)
+        let m = SCNMaterial()
+        m.diffuse.contents = img
+        m.emission.contents = img
+        m.isDoubleSided = true
+        m.writesToDepthBuffer = false
+        m.blendMode = .add
+        plane.materials = [m]
+        
+        let n = SCNNode(geometry: plane)
+        n.eulerAngles.x = -Float.pi / 2
+        n.castsShadow = false
+        return n
+    }
+    
+    private static func radialGlowImage(size: CGSize, color: UIColor, innerAlpha: CGFloat, outerAlpha: CGFloat) -> UIImage {
+        UIGraphicsBeginImageContextWithOptions(size, false, 2.0)
+        let ctx = UIGraphicsGetCurrentContext()!
+        let colors = [color.withAlphaComponent(innerAlpha).cgColor,
+                      color.withAlphaComponent(outerAlpha).cgColor,
+                      UIColor.clear.cgColor] as CFArray
+        let locs: [CGFloat] = [0.0, 0.35, 1.0]
+        let space = CGColorSpaceCreateDeviceRGB()
+        let grad = CGGradient(colorsSpace: space, colors: colors, locations: locs)!
+        let c = CGPoint(x: size.width/2, y: size.height/2)
+        ctx.drawRadialGradient(grad, startCenter: c, startRadius: 0, endCenter: c, endRadius: size.width/2, options: [])
+        let img = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        return img
+    }
+    
+    // MARK: - Crosshair Alignment (legacy support)
     static func calculateCrosshairAlignment(to targetNode: SCNNode, in sceneView: ARSCNView) -> Float {
         let screenPosition = sceneView.projectPoint(targetNode.position)
         let screenCenter = CGPoint(x: sceneView.bounds.width / 2, y: sceneView.bounds.height / 2)
@@ -170,116 +224,121 @@ class ARVisualizationHelpers {
     static func updateMarkerAlignment(node: SCNNode, alignment: Float) {
         guard let sphereNode = node.childNodes.first,
               let sphere = sphereNode.geometry as? SCNSphere else { return }
-        let color: UIColor = alignment > 0.85 ? .green : (alignment > 0.6 ? .yellow : .cyan)
+        let color: UIColor = alignment > 0.85 ? .systemGreen : (alignment > 0.6 ? .systemYellow : .cyan)
         sphere.firstMaterial?.diffuse.contents = color
         sphere.firstMaterial?.emission.contents = color
     }
     
-    // MARK: - Distance Update
-    
     static func updateDistanceLabel(on node: SCNNode, distance: Float) {
         guard let distanceNode = node.childNode(withName: "distanceLabel", recursively: true),
-              let textGeometry = distanceNode.geometry as? SCNText else { return }
-        let distanceString = String(format: "%.1fm", distance)
-        textGeometry.string = distanceString
+              let plane = distanceNode.geometry as? SCNPlane else { return }
+        let imgNode = makeFloatingLabel(text: String(format: "%.1fm", distance), textColor: .white, bgOpacity: 0.6)
+        plane.firstMaterial?.diffuse.contents = (imgNode.geometry as? SCNPlane)?.firstMaterial?.diffuse.contents
     }
     
-    // MARK: - Billboard Effect helper (legacy)
-    static func makeBillboard(node: SCNNode, camera: SCNNode) {
+    static func makeBillboard(node: SCNNode) {
         node.constraints = [SCNBillboardConstraint()]
     }
 }
 
-// Update your createWaypointMarker to billboard the text (add this where you create textNode)
-/// (Only the added line is important; rest of your function can remain as-is.)
-/*
-    // After: let textNode = SCNNode(geometry: textGeometry)
-    ARVisualizationHelpers.makeWaypointNameBillboard(textNode)   // <— add this
-*/
-
+// MARK: - Breadcrumbs Color Factory
 enum BreadcrumbsColorFactory {
     static func uiColor(from scheme: String) -> UIColor {
         switch scheme {
-        case "Green":   return UIColor.systemGreen
-        case "Cyan":    return UIColor.cyan
-        case "Yellow":  return UIColor.systemYellow
-        case "Magenta": return UIColor.systemPink
-        case "White":   return UIColor.white
-        case "Orange":  return UIColor.systemOrange
-        case "Blue":    return UIColor.systemBlue
-        default:        return UIColor.cyan   // ✅ default to high-contrast Cyan
+        case "Green":   return .systemGreen
+        case "Cyan":    return .cyan
+        case "Yellow":  return .systemYellow
+        case "Magenta": return .systemPink
+        case "White":   return .white
+        case "Orange":  return .systemOrange
+        case "Blue":    return .systemBlue
+        default:        return .cyan
         }
     }
 }
 
+// MARK: - Chevron Breadcrumb Factory (neon lines + subtle shell + halo)
 enum BreadcrumbArrowFactory {
-    /// Real arrow made from a 2D path, lightly extruded and rotated to lie on the floor.
-    /// Local +Z is "forward". Place slightly above floor; yaw the node to face the path.
+    /// Single-piece neon chevron with a small glow shell + ground halo.
     static func makeBreadcrumbArrowNode(color: UIColor,
                                         glow: Bool,
                                         pulseSeconds: Double,
                                         scale: CGFloat = 1.0) -> SCNNode {
-
-        // Arrow dimensions (meters, scaled)
-        let shaftLen: CGFloat = 0.24 * scale
-        let shaftW:   CGFloat = 0.05 * scale
-        let headLen:  CGFloat = 0.12 * scale
-        let headW:    CGFloat = 0.14 * scale
-        let thick:    CGFloat = 0.01 * scale   // extrusion thickness (10 mm)
-
-        // Build a 2D arrow path in XY (upwards along +Y), then we’ll rotate it to +Z
-        let path = UIBezierPath()
-        let halfS = shaftW / 2
-        let halfH = headW / 2
-
-        // Start at bottom-left of shaft
-        path.move(to: CGPoint(x: -halfS, y: 0))
-        path.addLine(to: CGPoint(x:  halfS, y: 0))
-        path.addLine(to: CGPoint(x:  halfS, y: shaftLen))
-        // Head
-        path.addLine(to: CGPoint(x:  halfH, y: shaftLen))
-        path.addLine(to: CGPoint(x:  0,     y: shaftLen + headLen)) // tip
-        path.addLine(to: CGPoint(x: -halfH, y: shaftLen))
-        // Back to shaft
-        path.addLine(to: CGPoint(x: -halfS, y: shaftLen))
-        path.close()
-
-        let shape = SCNShape(path: path, extrusionDepth: thick)
-        let mat = SCNMaterial()
-        mat.diffuse.contents   = color
-        mat.emission.contents  = glow ? color : UIColor.black
-        mat.isDoubleSided      = true
-        mat.metalness.contents = 0.0
-        mat.roughness.contents = 0.7
-        // Pump the glow a touch
-        if #available(iOS 15.0, *) { mat.emission.intensity = 1.0 }
-
-        shape.materials = [mat]
-
-        let node = SCNNode(geometry: shape)
-
-        // Center pivot around the arrow “base”
-        let (minB, maxB) = node.boundingBox
-        let pivot = SCNMatrix4MakeTranslation(
-            (minB.x + maxB.x) * 0.5,  // center X
-            minB.y,                    // bottom Y
-            (minB.z + maxB.z) * 0.5   // center Z
-        )
-        node.pivot = pivot
-
-        // Lay flat on the floor: path (+Y) → world (+Z)
-        node.eulerAngles.x = -.pi / 2
-        node.position.y = 0.015 // 1.5 cm above floor
-        node.castsShadow = false
-
-        // Optional pulse (subtle opacity “glow”)
-        if glow && pulseSeconds > 0.1 {
-            let up   = SCNAction.fadeOpacity(to: 1.0, duration: pulseSeconds/2.0)
-            let down = SCNAction.fadeOpacity(to: 0.7, duration: pulseSeconds/2.0)
-            node.opacity = 0.85
-            node.runAction(.repeatForever(.sequence([up, down])))
+        
+        // Shape tuning (meters)
+        let barLength: CGFloat = 0.32 * scale
+        let barWidth:  CGFloat = 0.070 * scale
+        let corner:    CGFloat = barWidth * 0.48
+        let thick:     CGFloat = 0.0045 * scale
+        let angleDeg:  CGFloat = 32
+        let angleRad:  CGFloat = angleDeg * .pi / 180
+        
+        // Build union path of two rounded legs (apex at 0,0; forward = +Y)
+        let baseRect = CGRect(x: -barWidth/2, y: 0, width: barWidth, height: barLength)
+        func legPath(rot: CGFloat) -> UIBezierPath {
+            let p = UIBezierPath(roundedRect: baseRect, cornerRadius: corner)
+            p.apply(CGAffineTransform(rotationAngle: rot))
+            return p
         }
-
+        let path = UIBezierPath()
+        path.append(legPath(rot: +angleRad))
+        path.append(legPath(rot: -angleRad))
+        path.usesEvenOddFillRule = false
+        
+        // Core neon geometry (bright line)
+        let coreShape = SCNShape(path: path, extrusionDepth: thick)
+        let coreMat = SCNMaterial()
+        coreMat.lightingModel = .constant
+        coreMat.diffuse.contents   = UIColor(cgColor: color.withAlphaComponent(0.98).cgColor)
+        coreMat.emission.contents  = color
+        coreMat.blendMode          = .add
+        coreMat.writesToDepthBuffer = false
+        if #available(iOS 15.0, *) { coreMat.emission.intensity = 1.75 }
+        coreShape.materials = [coreMat]
+        
+        let node = SCNNode(geometry: coreShape)
+        node.pivot = SCNMatrix4Identity
+        node.position.y = 0.015
+        node.castsShadow = false
+        
+        // Single subtle shell (reads as glow, not a second chevron)
+        let shellGeom = (coreShape.copy() as! SCNGeometry)
+        let shellMat = coreMat.copy() as! SCNMaterial
+        shellMat.diffuse.contents  = color.withAlphaComponent(0.22)
+        shellMat.emission.contents = color.withAlphaComponent(0.32)
+        if #available(iOS 15.0, *) { shellMat.emission.intensity = 1.85 }
+        shellGeom.materials = [shellMat]
+        let shellNode = SCNNode(geometry: shellGeom)
+        shellNode.scale = SCNVector3(1.08, 1.08, 1.0)
+        node.addChildNode(shellNode)
+        
+        // Ground halo plane (puddle of light)
+        let halo = ARVisualizationHelpers.makeGroundHalo(color: color, sizeMeters: 0.40 * scale)
+        halo.position = SCNVector3(0, -0.015, 0)
+        node.addChildNode(halo)
+        
+        // Breathing pulse (opacity) + slight emission bump
+        if glow && pulseSeconds > 0.1 {
+            let up = SCNAction.customAction(duration: pulseSeconds/2.0) { _, _ in
+                if #available(iOS 15.0, *) {
+                    coreMat.emission.intensity  = 1.95
+                    shellMat.emission.intensity = 2.05
+                }
+            }
+            let fadeUp = SCNAction.fadeOpacity(to: 1.0, duration: pulseSeconds/2.0)
+            let down = SCNAction.customAction(duration: pulseSeconds/2.0) { _, _ in
+                if #available(iOS 15.0, *) {
+                    coreMat.emission.intensity  = 1.75
+                    shellMat.emission.intensity = 1.85
+                }
+            }
+            let fadeDown = SCNAction.fadeOpacity(to: 0.92, duration: pulseSeconds/2.0)
+            node.runAction(.repeatForever(.sequence([up, fadeUp, down, fadeDown])))
+        } else {
+            node.opacity = 1.0
+        }
+        
+        // Orientation: keep upright (forward = +Y).
         return node
     }
 }

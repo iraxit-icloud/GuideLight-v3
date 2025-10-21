@@ -2,8 +2,8 @@
 //  NavigationARView.swift
 //  GuideLight v3
 //
-//  Breadcrumbs + Waypoint Markers (next + final).
-//  Swift 6–safe + fixed arrow orientation (stay flat on floor).
+//  Glowing chevron breadcrumbs + Glowing ring markers (Next + Destination).
+//  Swift-6 safe (MainActor hops), spacing de-dup, forward orientation.
 //
 
 import SwiftUI
@@ -23,9 +23,9 @@ struct NavigationARView: UIViewRepresentable {
         view.session = session
         view.delegate = context.coordinator
 
-        // 🔹 Soft gray veil to improve contrast
+        // Optional veil for contrast (tweak/disable if you like)
         let veil = UIView(frame: .zero)
-        veil.backgroundColor = UIColor.black.withAlphaComponent(0.24)
+        veil.backgroundColor = UIColor.black.withAlphaComponent(0.22)
         veil.isUserInteractionEnabled = false
         veil.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(veil)
@@ -48,6 +48,9 @@ struct NavigationARView: UIViewRepresentable {
         context.coordinator.sceneView = view
         context.coordinator.breadcrumbsRoot = breadcrumbsRoot
         context.coordinator.waypointsRoot = waypointsRoot
+
+        // Extra neon pop
+        ARVisualizationHelpers.applyCameraGlowPunch(to: view)
 
         context.coordinator.startBreadcrumbsTimer(viewModel: viewModel)
         context.coordinator.refreshWaypointMarkers(viewModel: viewModel)
@@ -85,7 +88,6 @@ struct NavigationARView: UIViewRepresentable {
             breadcrumbsTimer?.invalidate()
             breadcrumbsTimer = Timer.scheduledTimer(withTimeInterval: 0.30, repeats: true) { [weak self] _ in
                 guard let self else { return }
-                // 🔧 Ensure we hop onto the MainActor before calling an actor-isolated method.
                 Task { @MainActor in
                     self.updateIfNeeded(viewModel: viewModel)
                 }
@@ -191,7 +193,7 @@ struct NavigationARView: UIViewRepresentable {
                 if segLen <= 0.001 { continue }
 
                 var dist: Float = (spacing - accum)
-                if out.isEmpty { dist = 0 }
+                if out.isEmpty { dist = 0 }  // first point at segment start
 
                 while dist <= segLen && remaining > 0 {
                     let t = dist / segLen
@@ -206,7 +208,7 @@ struct NavigationARView: UIViewRepresentable {
                 if remaining <= 0 { break }
             }
 
-            // denser near turns
+            // Denser near turns
             var dense: [simd_float3] = []
             for i in 0..<out.count {
                 dense.append(out[i])
@@ -219,7 +221,15 @@ struct NavigationARView: UIViewRepresentable {
                     }
                 }
             }
-            return dense
+
+            // De-duplicate: enforce a minimum gap so chevrons don't stack
+            let minGap = max(0.5 * spacing, 0.35) // at least 35 cm
+            var filtered: [simd_float3] = []
+            for p in dense {
+                if let last = filtered.last, simd_distance(last, p) < minGap { continue }
+                filtered.append(p)
+            }
+            return filtered
         }
 
         // MARK: - Rendering
@@ -234,7 +244,9 @@ struct NavigationARView: UIViewRepresentable {
             if existing.count < needed {
                 for _ in existing.count..<needed { root.addChildNode(proto.clone()) }
             } else if existing.count > needed {
-                for i in stride(from: existing.count - 1, through: needed, by: -1) { existing[i].removeFromParentNode() }
+                for i in stride(from: existing.count - 1, through: needed, by: -1) {
+                    existing[i].removeFromParentNode()
+                }
             }
 
             let nodes = root.childNodes
@@ -243,13 +255,12 @@ struct NavigationARView: UIViewRepresentable {
                 let node = nodes[i]
                 node.position = SCNVector3(p.x, p.y, p.z)
 
-                // Yaw toward the next point, but KEEP the base X rotation at -π/2 to stay flat
+                // Point the chevron forward along the path (NO 180° flip)
                 let nextP = (i + 1 < samplesWorld.count) ? samplesWorld[i+1] : samplesWorld[i]
                 let dir = simd_normalize(nextP - p)
-                let yaw = atan2(dir.x, dir.z) + .pi 
-                let baseX: Float = -Float.pi / 2   // 🔧 stay flat on floor
-                let slightTilt: Float = -(.pi / 180) * 2.0
-                node.eulerAngles = SCNVector3(baseX + slightTilt, yaw, 0)
+                let yaw = atan2(dir.x, dir.z)
+                let baseX: Float = -Float.pi / 2  // lay flat on the floor
+                node.eulerAngles = SCNVector3(baseX, yaw, 0)
             }
         }
 
@@ -285,15 +296,28 @@ struct NavigationARView: UIViewRepresentable {
                   let path = viewModel.currentPath,
                   viewModel.currentWaypointIndex < path.waypoints.count else { return }
 
-            // Next waypoint (bigger, pulsating)
             let nextWP = path.waypoints[viewModel.currentWaypointIndex]
-            let nextNode = ARVisualizationHelpers.createWaypointMarker(waypoint: nextWP, isNext: true)
-            root.addChildNode(nextNode)
+            let isAlsoFinal = (nextWP.id == path.waypoints.last?.id)
 
-            // Final destination (smaller)
-            if let last = path.waypoints.last, last.id != nextWP.id {
-                let destNode = ARVisualizationHelpers.createWaypointMarker(waypoint: last, isNext: false)
+            if isAlsoFinal {
+                // If next is final, show only the green destination ring
+                let destNode = ARVisualizationHelpers.createGlowingRing(at: nextWP.position,
+                                                                        color: .systemGreen,
+                                                                        labelText: "Destination")
                 root.addChildNode(destNode)
+            } else {
+                // Show yellow "Next" ring + green destination ring
+                let nextNode = ARVisualizationHelpers.createGlowingRing(at: nextWP.position,
+                                                                        color: .systemYellow,
+                                                                        labelText: "Next")
+                root.addChildNode(nextNode)
+
+                if let last = path.waypoints.last {
+                    let destNode = ARVisualizationHelpers.createGlowingRing(at: last.position,
+                                                                            color: .systemGreen,
+                                                                            labelText: "Destination")
+                    root.addChildNode(destNode)
+                }
             }
         }
 
