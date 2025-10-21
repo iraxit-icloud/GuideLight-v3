@@ -303,19 +303,19 @@ struct NavigationARView: UIViewRepresentable {
                 // If next is final, show only the green destination ring
                 let destNode = ARVisualizationHelpers.createGlowingRing(at: nextWP.position,
                                                                         color: .systemGreen,
-                                                                        labelText: "Destination")
+                                                                        labelText: "")
                 root.addChildNode(destNode)
             } else {
                 // Show yellow "Next" ring + green destination ring
                 let nextNode = ARVisualizationHelpers.createGlowingRing(at: nextWP.position,
                                                                         color: .systemYellow,
-                                                                        labelText: "Next")
+                                                                        labelText: "")
                 root.addChildNode(nextNode)
 
                 if let last = path.waypoints.last {
                     let destNode = ARVisualizationHelpers.createGlowingRing(at: last.position,
                                                                             color: .systemGreen,
-                                                                            labelText: "Destination")
+                                                                            labelText: "")
                     root.addChildNode(destNode)
                 }
             }
