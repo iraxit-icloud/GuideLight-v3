@@ -22,6 +22,9 @@ struct ContentView: View {
     // Voice handoff
     @State private var pendingVoiceDestination: String? = nil
     @State private var launchedFromVoice = false
+    
+    // NEW: Track if welcome announcement has been played
+    @State private var hasPlayedWelcomeAnnouncement = false
 
     // Haptics (kept local to UI)
     private let hapticLight = UIImpactFeedbackGenerator(style: .light)
@@ -72,45 +75,43 @@ struct ContentView: View {
                     }
                     .accessibilitySortPriority(2)
 
-                    // MARK: Primary CTA — Start Navigation (high contrast, large target)
+                    // MARK: Primary CTA — Start Navigation (high contrast, large)
                     Button(action: startNavTap) {
-                        Text("Start Navigation")
-                            .font(.title2.weight(.bold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 24)
-                            .background(
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .fill(brandYellow)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.white.opacity(0.25), lineWidth: 2.5)
-                            )
-                            .foregroundStyle(brandNavy)
-                            .contentShape(Rectangle())
+                        HStack(spacing: 16) {
+                            Image(systemName: "location.fill")
+                                .font(.title2.weight(.semibold))
+                            Text("Start Navigation")
+                                .font(.title3.bold())
+                        }
+                        .foregroundStyle(brandNavy)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 72)
+                        .background(brandYellow)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 60)
+                    .padding(.horizontal, 20)
                     .accessibilityLabel("Start Navigation")
-                    .accessibilityHint("Double-tap to begin indoor navigation.")
-                    .accessibilitySortPriority(3)
+                    .accessibilityHint("Begin indoor navigation session. Swipe right or use voice command.")
+                    .accessibilitySortPriority(1)
 
+                    // Spacer to maintain layout
                     Spacer(minLength: 0)
                 }
+                .padding(.top, 20)
 
-                // MARK: Bottom controls: Help (left) + Settings (right)
+                // MARK: Help & Settings orbs (bottom corners)
                 HStack {
                     // HELP (bottom-left)
-                    Button {
+                    Button(action: { showHelpSheet = true }) {
+                        BottomOrb(icon: "questionmark")
+                    }
+                    .simultaneousGesture(TapGesture().onEnded {
                         hapticLight.impactOccurred()
                         NotificationCenter.default.post(name: .glHelpOpened, object: nil)
-                        showHelpSheet = true
-                    } label: {
-                        BottomOrb(icon: "questionmark.circle")
-                    }
+                    })
                     .accessibilityLabel("Help")
-                    .accessibilityHint("Opens help and about GuideLight.")
+                    .accessibilityHint("Opens help information and voice commands.")
 
                     Spacer(minLength: 0)
 
@@ -237,10 +238,27 @@ struct ContentView: View {
             argument: "Home. Say Hey GuideLight followed by your command. Start Navigation button. Help bottom left. Settings bottom right."
         )
         
+        // NEW: Play welcome announcement only once per app session
+        if !hasPlayedWelcomeAnnouncement {
+            playWelcomeAnnouncement()
+            hasPlayedWelcomeAnnouncement = true
+        }
+        
         // Start continuous speech recognition
         speechCenter.startListening()
         
         print("[ContentView] Home screen setup complete - speech recognition active")
+    }
+
+    // MARK: - NEW: Welcome Announcement
+    private func playWelcomeAnnouncement() {
+        // Delay the announcement slightly to let the UI settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            let welcomeMessage = "Welcome to GuideLight, your personal indoor navigator designed for visually impaired users. To get started, simply say Hey GuideLight, then tell me where you'd like to go."
+            
+            VoiceGuide.shared.speak(welcomeMessage)
+            print("[ContentView] Welcome announcement played")
+        }
     }
 
     // MARK: Actions
@@ -308,4 +326,3 @@ private struct HelpSheet: View {
         }
     }
 }
-

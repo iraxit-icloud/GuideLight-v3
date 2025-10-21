@@ -47,6 +47,7 @@
 				NavigationSystem/Models/NavigationState.swift.backup,
 				NavigationSystem/Views/NavigationMainView.swift.backup,
 				Utilities/ARVisualizationHelpers.swift.backup,
+				VoiceBasedInteraction/NavigationVoiceManager.swift,
 			);
 			target = 8F4678F32E7FB3E4009D770A /* GuideLight v3 */;
 		};
