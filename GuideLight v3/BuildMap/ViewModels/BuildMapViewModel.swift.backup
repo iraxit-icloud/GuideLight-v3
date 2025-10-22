@@ -28,11 +28,6 @@ class BuildMapViewModel: NSObject, ObservableObject {
     @Published var tempFloorSurface: FloorSurface = .carpet
     @Published var currentRoomId: String?
     @Published var showingRoomSelector = false
-    // NEW: extra room attributes (transient form state)
-    @Published var tempRoomDescription: String = ""
-    @Published var tempRoomAddress: String = ""
-    @Published var tempRoomFloor: String = ""
-
     
     // Obstacle properties
     @Published var isObstacleBeacon = false
@@ -71,36 +66,30 @@ class BuildMapViewModel: NSObject, ObservableObject {
     }
     
     // MARK: - Room Setup
-    func addRoom(name: String) {
-        // keep your existing validation if any
-        var updatedRooms = currentMap.rooms
-
-        let desc  = tempRoomDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        let addr  = tempRoomAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-        let floor = tempRoomFloor.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // NOTE: This assumes Room has the two optional fields already added (address, floorOfBuilding)
-        let newRoom = Room(
+    func addRoom() {
+        let name = tempRoomName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        
+        let room = Room(
             name: name,
             type: tempRoomType,
-            floorSurface: tempFloorSurface,
-            description: desc.isEmpty ? nil : desc,
-            address: addr.isEmpty ? nil : addr,
-            floorOfBuilding: floor.isEmpty ? nil : floor
+            floorSurface: tempFloorSurface
         )
-
-        updatedRooms.append(newRoom)
+        
+        var updatedRooms = currentMap.rooms
+        updatedRooms.append(room)
         currentMap = currentMap.updated(rooms: updatedRooms)
-
-        // reset transient fields for next entry (keep your existing resets and add the three below)
-        tempRoomDescription = ""
-        tempRoomAddress = ""
-        tempRoomFloor = ""
-
-        // keep your existing logging / analytics
-        print("✅ ROOM ADDED: \(name) • type=\(newRoom.type) • floor=\(newRoom.floorOfBuilding ?? "-")")
+        
+        if currentRoomId == nil {
+            currentRoomId = room.id.uuidString
+        }
+        
+        tempRoomName = ""
+        tempRoomType = .general
+        tempFloorSurface = .carpet
+        
+        print("✅ ROOM ADDED: \(name) (\(room.type.displayName))")
     }
-
     
     func removeRoom(at index: Int) {
         guard index < currentMap.rooms.count else { return }

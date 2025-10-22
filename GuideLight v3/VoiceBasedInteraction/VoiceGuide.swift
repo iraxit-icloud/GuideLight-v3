@@ -154,15 +154,16 @@ final class VoiceGuide: ObservableObject {
         let display: String       // Friendly label for picker
     }
 
-    private let curatedVoiceCatalog: [(id: String, name: String, language: String)] = [
-        ("com.apple.ttsbundle.Samantha-compact", "Samantha", "en-US"),
-        ("com.apple.ttsbundle.Daniel-compact",   "Daniel",   "en-GB"),
-        ("com.apple.ttsbundle.Karen-compact",    "Karen",    "en-AU"),
-        ("com.apple.ttsbundle.Moira-compact",    "Moira",    "en-IE"),
-        ("com.apple.ttsbundle.Rishi-compact",    "Rishi",    "en-IN"),
-        ("com.apple.ttsbundle.Monica-compact",   "Mónica",   "es-ES"),
-        ("com.apple.ttsbundle.Thomas-compact",   "Thomas",   "fr-FR"),
-        ("com.apple.ttsbundle.Anna-compact",     "Anna",     "de-DE"),
+    // Multiple possible identifier formats for each voice
+    private let curatedVoiceCatalog: [(ids: [String], name: String, language: String)] = [
+        (["com.apple.ttsbundle.Samantha-compact", "com.apple.voice.compact.en-US.Samantha", "com.apple.speech.synthesis.voice.samantha"], "Samantha", "en-US"),
+        (["com.apple.ttsbundle.Daniel-compact", "com.apple.voice.compact.en-GB.Daniel", "com.apple.speech.synthesis.voice.daniel"], "Daniel", "en-GB"),
+        (["com.apple.ttsbundle.Karen-compact", "com.apple.voice.compact.en-AU.Karen"], "Karen", "en-AU"),
+        (["com.apple.ttsbundle.Moira-compact", "com.apple.voice.compact.en-IE.Moira"], "Moira", "en-IE"),
+        (["com.apple.ttsbundle.Rishi-compact", "com.apple.voice.compact.en-IN.Rishi"], "Rishi", "en-IN"),
+        (["com.apple.ttsbundle.Monica-compact", "com.apple.voice.compact.es-ES.Monica"], "MÃ³nica", "es-ES"),
+        (["com.apple.ttsbundle.Thomas-compact", "com.apple.voice.compact.fr-FR.Thomas"], "Thomas", "fr-FR"),
+        (["com.apple.ttsbundle.Anna-compact", "com.apple.voice.compact.de-DE.Anna"], "Anna", "de-DE"),
     ]
 
     var availableVoiceOptions: [VoiceOption] {
@@ -170,12 +171,54 @@ final class VoiceGuide: ObservableObject {
         let lang = AVSpeechSynthesisVoice(language: voiceLocale)?.language ?? voiceLocale
         options.append(VoiceOption(id: "", name: "System Default", language: lang,
                                    display: "System Default (by Language \(lang))"))
-        for v in curatedVoiceCatalog {
-            if let installed = AVSpeechSynthesisVoice(identifier: v.id) {
-                options.append(VoiceOption(id: installed.identifier, name: v.name,
-                                           language: v.language, display: "\(v.name) • \(v.language)"))
+        
+        // Try to find each curated voice using multiple possible identifiers
+        for voiceInfo in curatedVoiceCatalog {
+            var foundVoice: AVSpeechSynthesisVoice?
+            var workingId: String?
+            
+            // Try each possible identifier for this voice
+            for id in voiceInfo.ids {
+                if let voice = AVSpeechSynthesisVoice(identifier: id) {
+                    foundVoice = voice
+                    workingId = id
+                    break
+                }
+            }
+            
+            if let voice = foundVoice, let id = workingId {
+                options.append(VoiceOption(
+                    id: voice.identifier,
+                    name: voiceInfo.name,
+                    language: voiceInfo.language,
+                    display: "\(voiceInfo.name) • \(voiceInfo.language)"
+                ))
+                #if DEBUG
+                print("[VoiceGuide] Found voice: \(voiceInfo.name) with ID: \(id)")
+                #endif
+            } else {
+                #if DEBUG
+                print("[VoiceGuide] Voice not found: \(voiceInfo.name) (tried \(voiceInfo.ids.count) identifiers)")
+                #endif
             }
         }
+        
+        // Also add any other English voices that might be available but not in our curated list
+        let allVoices = AVSpeechSynthesisVoice.speechVoices()
+        let englishVoices = allVoices.filter { voice in
+            voice.language.hasPrefix("en") &&
+            !options.contains { $0.id == voice.identifier }
+        }
+        
+        for voice in englishVoices {
+            options.append(VoiceOption(
+                id: voice.identifier,
+                name: voice.name,
+                language: voice.language,
+                display: "\(voice.name) • \(voice.language) (System)"
+            ))
+        }
+        
         return options
     }
 
@@ -185,4 +228,25 @@ final class VoiceGuide: ObservableObject {
         }
         return AVSpeechSynthesisVoice(identifier: voiceIdentifier)?.name ?? "Custom"
     }
+    
+    // MARK: - Debug Helper
+    #if DEBUG
+    func debugAvailableVoices() {
+        print("=== ALL AVAILABLE VOICES ===")
+        let allVoices = AVSpeechSynthesisVoice.speechVoices()
+        for voice in allVoices.sorted(by: { $0.language < $1.language }) {
+            print("ID: \(voice.identifier)")
+            print("Name: \(voice.name)")
+            print("Language: \(voice.language)")
+            print("Quality: \(voice.quality.rawValue)")
+            print("---")
+        }
+        
+        print("\n=== ENGLISH VOICES ONLY ===")
+        let englishVoices = allVoices.filter { $0.language.hasPrefix("en") }
+        for voice in englishVoices {
+            print("\(voice.name) - \(voice.identifier) (\(voice.language))")
+        }
+    }
+    #endif
 }

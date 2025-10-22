@@ -47,7 +47,7 @@ class MapManagerViewModel: ObservableObject {
         
         Task {
             do {
-                let mapFiles = try fileManager.contentsOfDirectory(at: mapsDirectory, 
+                let mapFiles = try fileManager.contentsOfDirectory(at: mapsDirectory,
                                                                   includingPropertiesForKeys: [.creationDateKey, .fileSizeKey])
                     .filter { $0.pathExtension.lowercased() == "json" }
                 

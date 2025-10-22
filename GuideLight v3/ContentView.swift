@@ -254,7 +254,7 @@ struct ContentView: View {
     private func playWelcomeAnnouncement() {
         // Delay the announcement slightly to let the UI settle
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            let welcomeMessage = "Welcome to GuideLight, your personal indoor navigator designed for visually impaired users. To get started, simply say Hey GuideLight, then tell me where you'd like to go."
+            let welcomeMessage = "Welcome to GuideLight, your personal indoor navigation companion designed for visually impaired users. To get started, simply say Hey GuideLight, then tell me where you'd like to go."
             
             VoiceGuide.shared.speak(welcomeMessage)
             print("[ContentView] Welcome announcement played")

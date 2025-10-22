@@ -216,37 +216,39 @@ struct SimpleJSONMapsListView: View {
     }
     
     // MARK: - Saved Maps Section
+    @ViewBuilder
     private var savedMapsSection: some View {
-        Group {
-            if mapManager.maps.isEmpty {
-                Section {
-                    VStack(spacing: 8) {
-                        Image(systemName: "map")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray)
-                        Text("No Saved Maps")
-                            .font(.headline)
-                            .foregroundColor(.gray)
-                        Text("Use 'Save as Map' to save your current session")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+        if mapManager.maps.isEmpty {
+            Section(header: Text("Saved Maps")) {
+                VStack(spacing: 8) {
+                    Image(systemName: "map")
+                        .font(.largeTitle)
+                        .foregroundColor(.gray)
+                    Text("No Saved Maps")
+                        .font(.headline)
+                        .foregroundColor(.gray)
+                    Text("Use 'Save as Map' to save your current session")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-            } else {
-                Section("Saved Maps") {
-                    ForEach(mapManager.maps) { map in
-                        NavigationLink(destination: SimpleJSONMapDetailView(map: map)) {
-                            mapRow(for: map)
-                        }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            }
+        } else {
+            Section(header: Text("Saved Maps")) {
+                ForEach(mapManager.maps) { map in
+                    NavigationLink(
+                        destination: SimpleJSONMapDetailView(jsonMap: map) // ← fix label here
+                    ) {
+                        mapRow(for: map)
                     }
-                    .onDelete(perform: deleteMap)
                 }
+                .onDelete(perform: deleteMap)
             }
         }
     }
+
     
     // MARK: - Map Row
     private func mapRow(for map: JSONMap) -> some View {

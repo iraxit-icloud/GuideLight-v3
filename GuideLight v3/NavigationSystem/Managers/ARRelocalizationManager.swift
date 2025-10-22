@@ -62,7 +62,7 @@ class ARRelocalizationManager: NSObject, ObservableObject {
         relocalizationState = .loading
         
         return try await withCheckedThrowingContinuation { continuation in
-            SimpleJSONMapManager.shared.loadARWorldMap(fileName: mapFileName) { [weak self] result in
+            SimpleJSONMapManager.shared.loadARWorldMap(fileName: mapFileName) { [weak self] (result: Result<ARWorldMap, ARWorldMapError>) in
                 guard let self = self else { return }
                 
                 Task { @MainActor in

@@ -79,6 +79,40 @@ struct IndoorMap: Codable, Identifiable {
     func doorways(connectingRoom roomId: String) -> [Doorway] {
         return doorways.filter { $0.connectsRooms.contains(roomId: roomId) }
     }
+    
+    var totalItems: Int {
+        return beacons.count + doorways.count + waypoints.count
+    }
+    
+    var isEmpty: Bool {
+        return rooms.isEmpty && beacons.isEmpty && doorways.isEmpty && waypoints.isEmpty
+    }
+    
+    // MARK: - Statistics
+    var stats: MapStats {
+        return MapStats(
+            roomCount: rooms.count,
+            beaconCount: beacons.count,
+            doorwayCount: doorways.count,
+            waypointCount: waypoints.count,
+            accessibleBeacons: beacons.filter { $0.isAccessible }.count,
+            obstacleBeacons: beacons.filter { $0.isObstacle }.count
+        )
+    }
+}
+
+// MARK: - Map Statistics
+struct MapStats {
+    let roomCount: Int
+    let beaconCount: Int
+    let doorwayCount: Int
+    let waypointCount: Int
+    let accessibleBeacons: Int
+    let obstacleBeacons: Int
+    
+    var totalItems: Int {
+        return beaconCount + doorwayCount + waypointCount
+    }
 }
 
 // MARK: - Map Metadata
@@ -125,12 +159,16 @@ extension IndoorMap {
             "mapName": name,
             "description": description ?? "",
             "rooms": rooms.map { room in
-                [
+                var roomData: [String: Any] = [
                     "id": room.id.uuidString,
                     "name": room.name,
                     "type": room.type.rawValue,
                     "floorSurface": room.floorSurface.rawValue
                 ]
+                if let description = room.description {
+                    roomData["description"] = description
+                }
+                return roomData
             },
             "beacons": beacons.map { beacon in
                 var data: [String: Any] = [
@@ -160,14 +198,20 @@ extension IndoorMap {
                         "canRouteAround": props.canRouteAround,
                         "obstacleType": props.obstacleType.rawValue
                     ]
-                } else {
-                    data["physicalProperties"] = NSNull()
+                }
+                
+                if let description = beacon.description {
+                    data["description"] = description
+                }
+                
+                if let notes = beacon.accessibilityNotes {
+                    data["accessibilityNotes"] = notes
                 }
                 
                 return data
             },
             "doorways": doorways.map { doorway in
-                [
+                var data: [String: Any] = [
                     "id": doorway.id.uuidString,
                     "name": doorway.name,
                     "position": [
@@ -186,12 +230,21 @@ extension IndoorMap {
                         "fromRoomA": doorway.doorActions.fromRoomA.rawValue,
                         "fromRoomB": doorway.doorActions.fromRoomB.rawValue
                     ],
-                    "isAccessible": doorway.isAccessible,
-                    "timestamp": doorway.timestamp.timeIntervalSince1970
+                    "isAccessible": doorway.isAccessible
                 ]
+                
+                if let description = doorway.description {
+                    data["description"] = description
+                }
+                
+                if let audioLandmark = doorway.audioLandmark {
+                    data["audioLandmark"] = audioLandmark
+                }
+                
+                return data
             },
             "waypoints": waypoints.map { waypoint in
-                [
+                var data: [String: Any] = [
                     "id": waypoint.id.uuidString,
                     "name": waypoint.name,
                     "coordinates": [
@@ -200,48 +253,21 @@ extension IndoorMap {
                         "z": Double(waypoint.coordinates.z)
                     ],
                     "roomId": waypoint.roomId,
-                    "description": waypoint.description ?? "",
-                    "audioLandmark": waypoint.audioLandmark ?? waypoint.name,
                     "waypointType": waypoint.waypointType.rawValue,
                     "isAccessible": waypoint.isAccessible,
-                    // NEW: persist beacon links as snake_case per request
                     "connected_beacons": waypoint.connectedBeacons
                 ]
-            },
-            "edgeComputationRules": [
-                "version": "1.0",
-                "enabled": true,
-                "rules": [
-                    "withinRoomLineOfSight": [
-                        "enabled": true,
-                        "description": "Connect beacons in same room if clear path",
-                        "maxDistance": 10.0,
-                        "checkObstacles": true
-                    ],
-                    "crossRoomViaDoorways": [
-                        "enabled": true,
-                        "description": "Route between rooms only via doorways",
-                        "allowDirectCrossRoom": false
-                    ],
-                    "avoidBeaconObstacles": [
-                        "enabled": true,
-                        "description": "Route around obstacle beacons",
-                        "useAvoidanceRadius": true
-                    ]
-                ],
-                "pathWeights": [
-                    "withinRoom": 1.0,
-                    "doorwayCrossing": 1.2,
-                    "hallwayTraversal": 1.0,
-                    "obstacleAvoidance": 1.3
-                ]
-            ],
-            "navigationSettings": [
-                "defaultWalkingSpeed": 1.2,
-                "obstacleDetectionRange": 8,
-                "recalculationTriggerDistance": 2.0,
-                "audioGuidanceInterval": 3.0
-            ]
+                
+                if let description = waypoint.description {
+                    data["description"] = description
+                }
+                
+                if let audioLandmark = waypoint.audioLandmark {
+                    data["audioLandmark"] = audioLandmark
+                }
+                
+                return data
+            }
         ]
     }
     

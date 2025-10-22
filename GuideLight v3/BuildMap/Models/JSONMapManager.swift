@@ -74,6 +74,24 @@ struct JSONMap: Identifiable, Codable {
     }
 }
 
+// JSONMap.swift — for persistent saving
+extension JSONMap {
+    /// Create a new JSONMap by copying `base` and selectively overriding fields.
+    init(copyOf base: JSONMap,
+         name: String? = nil,
+         jsonData: [String: Any]? = nil,
+         description: String? = nil,
+         arWorldMapFileName: String?? = nil) {
+        self.id = base.id
+        self.name = name ?? base.name
+        self.createdDate = base.createdDate
+        self.jsonData = jsonData ?? base.jsonData
+        self.description = description ?? base.description
+        self.arWorldMapFileName = arWorldMapFileName ?? base.arWorldMapFileName
+    }
+}
+
+
 // MARK: - ARWorldMap Error Types
 enum ARWorldMapError: Error, LocalizedError {
     case captureFailed(String)
@@ -294,6 +312,25 @@ class SimpleJSONMapManager: ObservableObject {
             print("❌ Failed to delete ARWorldMap file: \(error)")
         }
     }
+    
+    // Saving the modified json to persist
+    @discardableResult
+    func updateJSON(for mapId: UUID, with newJSON: [String: Any]) -> Bool {
+        guard let index = maps.firstIndex(where: { $0.id == mapId }) else {
+            print("⚠️ Map not found for update")
+            return false
+        }
+
+        let old = maps[index]
+        let updated = JSONMap(copyOf: old, jsonData: newJSON)  // ✅ preserve id/createdDate/etc.
+        maps[index] = updated
+
+        saveMaps() // 💾 writes updated array back to UserDefaults
+        print("✅ Updated JSON for \(updated.name)")
+        return true
+    }
+
+
     
     // MARK: - Notification Handlers
     

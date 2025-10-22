@@ -1,112 +1,102 @@
 //
-//  Room.swift - SIMPLIFIED
-//  No boundary coordinates needed
+//  Room.swift
+//  GuideLight v3
+//
+//  Simplified room model + optional address/floor fields
 //
 
 import Foundation
 
-// MARK: - Room Model (Simplified)
+// MARK: - Room Model
 struct Room: Codable, Identifiable, Equatable {
     let id: UUID
     let name: String
     let type: RoomType
     let floorSurface: FloorSurface
     let createdAt: Date
-    /// NEW: human-authored description stored in map JSON
-    var description: String?   // ✅ added
 
-    init(name: String,
-         type: RoomType = .general,
-         floorSurface: FloorSurface = .carpet,
-         description: String? = nil) {
-        self.id = UUID()
+    /// Optional, human-authored description stored in JSON
+    var description: String?
+
+    /// NEW: e.g. "123 Main St, Springfield, NJ"
+    var address: String?
+
+    /// NEW: floor label, flexible for "B1", "Mezz", "2", "PH", etc.
+    var floorOfBuilding: String?
+
+    // JSON keys – keep Swift camelCase, JSON snake_case for floor
+    enum CodingKeys: String, CodingKey {
+        case id, name, type, floorSurface, createdAt, description, address
+        case floorOfBuilding = "floor_of_build"
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        type: RoomType = .general,
+        floorSurface: FloorSurface = .carpet,
+        createdAt: Date = Date(),
+        description: String? = nil,
+        address: String? = nil,
+        floorOfBuilding: String? = nil
+    ) {
+        self.id = id
         self.name = name
         self.type = type
         self.floorSurface = floorSurface
-        self.createdAt = Date()
+        self.createdAt = createdAt
         self.description = description
+        self.address = address
+        self.floorOfBuilding = floorOfBuilding
     }
 }
 
-// MARK: - Room Type (Extended for Audio Customization)
-enum RoomType: String, CaseIterable, Codable {
-    case general = "general"
-    case bedroom = "bedroom"
-    case bathroom = "bathroom"
-    case kitchen = "kitchen"
-    case living_room = "living_room"
-    case dining_room = "dining_room"
-    case office = "office"
-    case hallway = "hallway"
-    case entrance = "entrance"
-    case balcony = "balcony"
-    case storage = "storage"
-    case laundry = "laundry"
-    case garage = "garage"
-    
+// MARK: - Room Type (keep your existing cases)
+enum RoomType: String, Codable, CaseIterable, Identifiable {
+    case general, kitchen, living, bedroom, bathroom, hallway, office, laundry, garage, lobby, stairwell, elevator, storage, classroom, lab, cafeteria, auditorium, entrance
+    var id: String { rawValue }
+
     var displayName: String {
         switch self {
-        case .general: return "General Room"
-        case .bedroom: return "Bedroom"
-        case .bathroom: return "Bathroom/Washroom"
+        case .entrance: return "Entrance"
+        case .general: return "General"
         case .kitchen: return "Kitchen"
-        case .living_room: return "Living Room"
-        case .dining_room: return "Dining Room"
-        case .office: return "Office/Study"
-        case .hallway: return "Hallway/Corridor"
-        case .entrance: return "Entrance/Lobby"
-        case .balcony: return "Balcony/Patio"
-        case .storage: return "Storage/Closet"
-        case .laundry: return "Laundry Room"
+        case .living: return "Living"
+        case .bedroom: return "Bedroom"
+        case .bathroom: return "Bathroom"
+        case .hallway: return "Hallway"
+        case .office: return "Office"
+        case .laundry: return "Laundry"
         case .garage: return "Garage"
-        }
-    }
-    
-    // Audio context hints for navigation
-    var audioContext: String {
-        switch self {
-        case .general: return "room"
-        case .bedroom: return "bedroom - listen for bed sounds"
-        case .bathroom: return "bathroom - listen for water/tile echoes"
-        case .kitchen: return "kitchen - listen for appliances"
-        case .living_room: return "living room - open space"
-        case .dining_room: return "dining area"
-        case .office: return "office - quiet workspace"
-        case .hallway: return "hallway - corridor passage"
-        case .entrance: return "entrance - doorway area"
-        case .balcony: return "balcony - outdoor space"
-        case .storage: return "storage area"
-        case .laundry: return "laundry room"
-        case .garage: return "garage"
+        case .lobby: return "Lobby"
+        case .stairwell: return "Stairwell"
+        case .elevator: return "Elevator"
+        case .storage: return "Storage"
+        case .classroom: return "Classroom"
+        case .lab: return "Lab"
+        case .cafeteria: return "Cafeteria"
+        case .auditorium: return "Auditorium"
         }
     }
 }
 
-// MARK: - Floor Surface
-enum FloorSurface: String, CaseIterable, Codable {
-    case carpet = "carpet"
-    case tile = "tile"
-    case hardwood = "hardwood"
-    case concrete = "concrete"
-    case linoleum = "linoleum"
-    case marble = "marble"
-    
+// MARK: - Floor surface (keep as-is; included for completeness)
+enum FloorSurface: String, Codable, CaseIterable, Identifiable {
+    case carpet, hardwood, tile, marble, concrete, linoleum
+    var id: String { rawValue }
+
     var displayName: String {
-        return rawValue.capitalized
-    }
-    
-    var surfaceModifier: Double {
         switch self {
-        case .carpet: return 1.0
-        case .tile: return 0.95
-        case .hardwood: return 0.98
-        case .concrete: return 1.05
-        case .linoleum: return 0.97
-        case .marble: return 0.93
+        case .carpet: return "Carpet"
+        case .hardwood: return "Hardwood"
+        case .tile: return "Tile"
+        case .marble: return "Marble"
+        case .concrete: return "Concrete"
+        case .linoleum: return "Linoleum"
         }
     }
-    
-    // Audio properties for surface type
+
+    // Optional: Audio/feel hints you were using elsewhere
     var echoLevel: String {
         switch self {
         case .carpet: return "low echo"

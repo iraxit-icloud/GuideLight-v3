@@ -140,12 +140,10 @@ struct BuildMapView: View {
                 VStack(spacing: 12) {
                     ForEach(Array(viewModel.currentMap.rooms.enumerated()), id: \.element.id) { index, room in
                         HStack {
-                            VStack(alignment: .leading, spacing: 6) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(room.name)
                                     .font(.headline)
-
-                                // existing chips line
-                                HStack(spacing: 6) {
+                                HStack {
                                     Text(room.type.displayName)
                                         .font(.caption)
                                         .foregroundColor(.secondary)
@@ -154,24 +152,6 @@ struct BuildMapView: View {
                                     Text(room.floorSurface.displayName)
                                         .font(.caption)
                                         .foregroundColor(.secondary)
-                                }
-
-                                // NEW: show optional floor/address/description if present
-                                if let f = room.floorOfBuilding, !f.isEmpty {
-                                    Text("Floor: \(f)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                if let addr = room.address, !addr.isEmpty {
-                                    Text(addr)
-                                        .font(.caption2)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
-                                }
-                                if let desc = room.description, !desc.isEmpty {
-                                    Text(desc)
-                                        .font(.caption2)
-                                        .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
                             Spacer()
@@ -212,37 +192,8 @@ struct BuildMapView: View {
                 }
                 .padding(.horizontal)
 
-                // NEW: Description (multiline)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Description")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
-                    TextEditor(text: $viewModel.tempRoomDescription)
-                        .frame(minHeight: 80)
-                        .padding(.horizontal)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.secondary.opacity(0.2))
-                                .padding(.horizontal)
-                        )
-                        .accessibilityLabel("Room description")
-                }
-
-                // NEW: Address
-                TextField("Address (optional)", text: $viewModel.tempRoomAddress)
-                    .textFieldStyle(.roundedBorder)
-                    .autocapitalization(.words)
-                    .padding(.horizontal)
-
-                // NEW: Floor of building
-                TextField("Floor of building (e.g., B1, Mezz, 2, PH)", text: $viewModel.tempRoomFloor)
-                    .textFieldStyle(.roundedBorder)
-                    .autocapitalization(.allCharacters)
-                    .padding(.horizontal)
-
                 Button {
-                    viewModel.addRoom(name: viewModel.tempRoomName)
+                    viewModel.addRoom()
                 } label: {
                     Label("Add Room", systemImage: "plus.circle.fill")
                         .frame(maxWidth: .infinity)
@@ -273,7 +224,6 @@ struct BuildMapView: View {
             .padding(.bottom, 32)
         }
     }
-
 
     // MARK: - AR Mapping View
     private var arMappingView: some View {

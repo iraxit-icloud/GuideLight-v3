@@ -3,20 +3,16 @@
 //  GuideLight v3
 //
 //  Navigation integration helper for ARWorldMap support
-//
 
 import Foundation
 import SwiftUI
 import ARKit
 import Combine
+import simd
 
 // MARK: - Navigation Integration Helper
 class NavigationIntegrationHelper: ObservableObject {
     static let shared = NavigationIntegrationHelper()
-    
-    // MARK: - Private constants
-    /// Use a private alias to avoid symbol ambiguity.
-    private let GLMapSelectedNote = Notification.Name("GuideLight.MapSelectedForNavigation")
     
     @Published var selectedMapForNavigation: JSONMap?
     @Published var isARWorldMapLoaded = false
@@ -31,8 +27,7 @@ class NavigationIntegrationHelper: ObservableObject {
     
     // MARK: - Notification Listeners
     private func setupNotificationListeners() {
-        NotificationCenter.default
-            .publisher(for: GLMapSelectedNote)
+        NotificationCenter.default.publisher(for: .mapSelectedForNavigation)
             .sink { [weak self] notification in
                 self?.handleMapSelectionChange(notification)
             }
@@ -57,13 +52,10 @@ class NavigationIntegrationHelper: ObservableObject {
     // MARK: - ARWorldMap Loading
     func loadARWorldMapForNavigation(completion: @escaping (Result<ARWorldMap, ARWorldMapError>) -> Void) {
         guard let map = selectedMapForNavigation else {
-            completion(.failure(.fileNotFound))
-            return
+            completion(.failure(.fileNotFound)); return
         }
-        
         guard map.hasARWorldMap else {
-            completion(.failure(.fileNotFound))
-            return
+            completion(.failure(.fileNotFound)); return
         }
         
         loadingProgress = "Loading ARWorldMap for navigation..."
@@ -77,7 +69,6 @@ class NavigationIntegrationHelper: ObservableObject {
                     self?.loadingProgress = "ARWorldMap loaded successfully"
                     print("✅ Navigation Helper: ARWorldMap loaded for navigation")
                     completion(.success(worldMap))
-                    
                 case .failure(let error):
                     self?.isARWorldMapLoaded = false
                     self?.loadingProgress = "Failed to load ARWorldMap"
@@ -89,17 +80,9 @@ class NavigationIntegrationHelper: ObservableObject {
     }
     
     // MARK: - Map Data Access
-    func getNavigationMapData() -> [String: Any]? {
-        return selectedMapForNavigation?.jsonData
-    }
-    
-    func getNavigationMapName() -> String? {
-        return selectedMapForNavigation?.name
-    }
-    
-    func hasARWorldMapSupport() -> Bool {
-        return selectedMapForNavigation?.hasARWorldMap ?? false
-    }
+    func getNavigationMapData() -> [String: Any]? { selectedMapForNavigation?.jsonData }
+    func getNavigationMapName() -> String? { selectedMapForNavigation?.name }
+    func hasARWorldMapSupport() -> Bool { selectedMapForNavigation?.hasARWorldMap ?? false }
     
     // MARK: - Clear Selection
     func clearNavigationMap() {
@@ -109,14 +92,13 @@ class NavigationIntegrationHelper: ObservableObject {
         mapManager.selectMapForNavigation(nil)
     }
     
-    // MARK: - Parse IndoorMap from JSONMap
+    // MARK: - Parse IndoorMap from JSONMap (ENHANCED WITH BACKWARD COMPATIBILITY)
     static func parseIndoorMap(from jsonMap: JSONMap) -> IndoorMap? {
         guard let mapName = jsonMap.jsonData["mapName"] as? String else {
-            print("❌ Failed to parse map: Missing mapName")
-            return nil
+            print("❌ Failed to parse map: Missing mapName"); return nil
         }
         
-        // Parse rooms
+        // Rooms - ENHANCED with metadata support while maintaining backward compatibility
         var rooms: [Room] = []
         if let roomsData = jsonMap.jsonData["rooms"] as? [[String: Any]] {
             for roomDict in roomsData {
@@ -124,16 +106,36 @@ class NavigationIntegrationHelper: ObservableObject {
                       let typeString = roomDict["type"] as? String,
                       let floorSurfaceString = roomDict["floorSurface"] as? String,
                       let roomType = RoomType(rawValue: typeString),
-                      let floorSurface = FloorSurface(rawValue: floorSurfaceString) else {
-                    continue
-                }
+                      let floorSurface = FloorSurface(rawValue: floorSurfaceString) else { continue }
                 
-                let room = Room(name: name, type: roomType, floorSurface: floorSurface)
+                // NEW: Extract additional metadata fields (backward compatible - will be nil if not present)
+                let description = roomDict["description"] as? String
+                let metadata = roomDict["metadata"] as? String
+                let address = roomDict["address"] as? String
+                
+                let room = Room(
+                    name: name,
+                    type: roomType,
+                    floorSurface: floorSurface,
+                    description: description,
+                    address: address
+                )
                 rooms.append(room)
+                
+                print("✅ Parsed room: \(name)")
+                if let metadata = metadata {
+                    print("   Metadata: \(metadata)")
+                }
+                if let address = address {
+                    print("   Address: \(address)")
+                }
+                if let description = description {
+                    print("   Description: \(description)")
+                }
             }
         }
         
-        // Parse beacons
+        // Beacons - UNCHANGED
         var beacons: [Beacon] = []
         if let beaconsData = jsonMap.jsonData["beacons"] as? [[String: Any]] {
             for beaconDict in beaconsData {
@@ -142,127 +144,108 @@ class NavigationIntegrationHelper: ObservableObject {
                       let category = BeaconCategory(rawValue: categoryString),
                       let roomId = beaconDict["roomId"] as? String,
                       let coordsDict = beaconDict["coordinates"] as? [String: Double],
-                      let x = coordsDict["x"],
-                      let y = coordsDict["y"],
-                      let z = coordsDict["z"] else {
-                    continue
-                }
+                      let x = coordsDict["x"], let y = coordsDict["y"], let z = coordsDict["z"] else { continue }
                 
                 let position = simd_float3(Float(x), Float(y), Float(z))
                 let audioLandmark = beaconDict["audioLandmark"] as? String
                 let isAccessible = beaconDict["isAccessible"] as? Bool ?? true
                 
-                // Physical properties
                 var physicalProperties: PhysicalProperties?
                 if let propsDict = beaconDict["physicalProperties"] as? [String: Any],
-                   let isObstacle = propsDict["isObstacle"] as? Bool,
-                   isObstacle,
-                   let boundingBoxDict = propsDict["boundingBox"] as? [String: Double],
-                   let width = boundingBoxDict["width"],
-                   let depth = boundingBoxDict["depth"],
-                   let height = boundingBoxDict["height"],
+                   let isObstacle = propsDict["isObstacle"] as? Bool, isObstacle,
+                   let box = propsDict["boundingBox"] as? [String: Double],
+                   let width = box["width"], let depth = box["depth"], let height = box["height"],
                    let avoidanceRadius = propsDict["avoidanceRadius"] as? Double,
                    let obstacleTypeString = propsDict["obstacleType"] as? String,
                    let obstacleType = ObstacleType(rawValue: obstacleTypeString) {
-                    
                     physicalProperties = PhysicalProperties(
                         isObstacle: true,
-                        boundingBox: BoundingBox(
-                            width: Float(width),
-                            depth: Float(depth),
-                            height: Float(height)
-                        ),
+                        boundingBox: BoundingBox(width: Float(width), depth: Float(depth), height: Float(height)),
                         avoidanceRadius: Float(avoidanceRadius),
                         canRouteAround: propsDict["canRouteAround"] as? Bool ?? true,
                         obstacleType: obstacleType
                     )
                 }
                 
-                let beacon = Beacon(
-                    name: name,
-                    position: position,
-                    category: category,
-                    roomId: roomId,
-                    description: beaconDict["description"] as? String,
-                    audioLandmark: audioLandmark,
-                    isAccessible: isAccessible,
-                    accessibilityNotes: beaconDict["accessibilityNotes"] as? String,
-                    physicalProperties: physicalProperties
+                beacons.append(
+                    Beacon(
+                        name: name,
+                        position: position,
+                        category: category,
+                        roomId: roomId,
+                        description: beaconDict["description"] as? String,
+                        audioLandmark: audioLandmark,
+                        isAccessible: isAccessible,
+                        accessibilityNotes: beaconDict["accessibilityNotes"] as? String,
+                        physicalProperties: physicalProperties
+                    )
                 )
-                beacons.append(beacon)
             }
         }
         
-        // Parse doorways
+        // Doorways - UNCHANGED
         var doorways: [Doorway] = []
         if let doorwaysData = jsonMap.jsonData["doorways"] as? [[String: Any]] {
             for doorwayDict in doorwaysData {
                 guard let name = doorwayDict["name"] as? String,
                       let posDict = doorwayDict["position"] as? [String: Double],
-                      let x = posDict["x"],
-                      let y = posDict["y"],
-                      let z = posDict["z"],
+                      let x = posDict["x"], let y = posDict["y"], let z = posDict["z"],
                       let width = doorwayDict["width"] as? Double,
                       let connectsDict = doorwayDict["connectsRooms"] as? [String: String],
-                      let roomA = connectsDict["roomA"],
-                      let roomB = connectsDict["roomB"],
+                      let roomA = connectsDict["roomA"], let roomB = connectsDict["roomB"],
                       let doorTypeString = doorwayDict["doorType"] as? String,
                       let doorType = DoorwayType(rawValue: doorTypeString),
                       let actionsDict = doorwayDict["doorActions"] as? [String: String],
                       let fromAString = actionsDict["fromRoomA"],
                       let fromBString = actionsDict["fromRoomB"],
                       let fromRoomA = DoorAction(rawValue: fromAString),
-                      let fromRoomB = DoorAction(rawValue: fromBString) else {
-                    continue
-                }
+                      let fromRoomB = DoorAction(rawValue: fromBString) else { continue }
                 
                 let position = simd_float3(Float(x), Float(y), Float(z))
                 let isAccessible = doorwayDict["isAccessible"] as? Bool ?? true
                 
-                let doorway = Doorway(
-                    name: name,
-                    position: position,
-                    width: Float(width),
-                    height: Float(doorwayDict["height"] as? Double ?? 2.1),
-                    connectsRooms: ConnectedRooms(roomA: roomA, roomB: roomB),
-                    doorType: doorType,
-                    doorActions: DoorActions(fromRoomA: fromRoomA, fromRoomB: fromRoomB),
-                    isAccessible: isAccessible,
-                    description: doorwayDict["description"] as? String,
-                    audioLandmark: doorwayDict["audioLandmark"] as? String
+                doorways.append(
+                    Doorway(
+                        name: name,
+                        position: position,
+                        width: Float(width),
+                        height: Float(doorwayDict["height"] as? Double ?? 2.1),
+                        connectsRooms: ConnectedRooms(roomA: roomA, roomB: roomB),
+                        doorType: doorType,
+                        doorActions: DoorActions(fromRoomA: fromRoomA, fromRoomB: fromRoomB),
+                        isAccessible: isAccessible,
+                        description: doorwayDict["description"] as? String,
+                        audioLandmark: doorwayDict["audioLandmark"] as? String
+                    )
                 )
-                doorways.append(doorway)
             }
         }
         
-        // Parse waypoints
+        // Waypoints (optional) - UNCHANGED
         var waypoints: [Waypoint] = []
         if let waypointsData = jsonMap.jsonData["waypoints"] as? [[String: Any]] {
             for waypointDict in waypointsData {
                 guard let name = waypointDict["name"] as? String,
                       let coordsDict = waypointDict["coordinates"] as? [String: Double],
-                      let x = coordsDict["x"],
-                      let y = coordsDict["y"],
-                      let z = coordsDict["z"],
-                      let roomId = waypointDict["roomId"] as? String else {
-                    continue
-                }
+                      let x = coordsDict["x"], let y = coordsDict["y"], let z = coordsDict["z"],
+                      let roomId = waypointDict["roomId"] as? String else { continue }
                 
                 let coordinates = simd_float3(Float(x), Float(y), Float(z))
                 let waypointTypeString = waypointDict["waypointType"] as? String ?? "navigation"
                 let waypointType = Waypoint.WaypointType(rawValue: waypointTypeString) ?? .navigation
                 let isAccessible = waypointDict["isAccessible"] as? Bool ?? true
                 
-                let waypoint = Waypoint(
-                    name: name,
-                    coordinates: coordinates,
-                    roomId: roomId,
-                    waypointType: waypointType,
-                    isAccessible: isAccessible,
-                    description: waypointDict["description"] as? String,
-                    audioLandmark: waypointDict["audioLandmark"] as? String
+                waypoints.append(
+                    Waypoint(
+                        name: name,
+                        coordinates: coordinates,
+                        roomId: roomId,
+                        waypointType: waypointType,
+                        isAccessible: isAccessible,
+                        description: waypointDict["description"] as? String,
+                        audioLandmark: waypointDict["audioLandmark"] as? String
+                    )
                 )
-                waypoints.append(waypoint)
             }
         }
         
@@ -285,7 +268,7 @@ class NavigationIntegrationHelper: ObservableObject {
     }
 }
 
-// MARK: - Navigation Status View
+// MARK: - Navigation Status View - UNCHANGED
 struct NavigationMapStatusView: View {
     @ObservedObject private var navigationHelper = NavigationIntegrationHelper.shared
     
@@ -313,7 +296,6 @@ struct NavigationMapStatusView: View {
                                     .foregroundColor(.blue)
                             }
                         }
-                        
                         Spacer()
                     }
                     
@@ -338,11 +320,9 @@ struct NavigationMapStatusView: View {
                     Image(systemName: "map.circle")
                         .font(.largeTitle)
                         .foregroundColor(.gray)
-                    
                     Text("No Navigation Map Selected")
                         .font(.headline)
                         .foregroundColor(.secondary)
-                    
                     Text("Select a map to enable navigation")
                         .font(.caption)
                         .foregroundColor(.secondary)

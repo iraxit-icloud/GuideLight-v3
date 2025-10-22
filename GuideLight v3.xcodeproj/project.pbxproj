@@ -44,6 +44,8 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				BuildMap/Models/JSONMapManager.swift.backup,
+				BuildMap/ViewModels/BuildMapViewModel.swift.backup,
+				BuildMap/Views/BuildMapView.swift.backup,
 				NavigationSystem/Models/NavigationState.swift.backup,
 				NavigationSystem/Views/NavigationMainView.swift.backup,
 				Utilities/ARVisualizationHelpers.swift.backup,
